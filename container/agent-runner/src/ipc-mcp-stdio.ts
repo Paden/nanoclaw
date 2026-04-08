@@ -41,29 +41,196 @@ const server = new McpServer({
 
 server.tool(
   'send_message',
-  "Send a message to the user or group immediately while you're still running. Use this for progress updates or to send multiple messages. You can call this multiple times.",
+  "Send a message to the user or group immediately while you're still running. Optionally tag the message with a label so you can edit/pin/delete it later (e.g. a persistent status card). Optionally pin on send.",
   {
     text: z.string().describe('The message text to send'),
     sender: z
       .string()
       .optional()
+      .describe('Your role/identity name (e.g. "Researcher").'),
+    label: z
+      .string()
+      .optional()
       .describe(
-        'Your role/identity name (e.g. "Researcher"). When set, messages appear from a dedicated bot in Telegram.',
+        'Logical label to remember this message by (e.g. "status_card"). Required to later edit/pin/delete it. Reusing a label overwrites the previous mapping.',
+      ),
+    pin: z
+      .boolean()
+      .optional()
+      .describe('If true, pin the message after sending. Requires label.'),
+    upsert: z
+      .boolean()
+      .optional()
+      .describe(
+        'If true and label already exists, edit the existing message instead of posting a new one. Use for persistent status cards — one call handles both create and update.',
       ),
   },
   async (args) => {
-    const data: Record<string, string | undefined> = {
+    const data: Record<string, string | boolean | undefined> = {
       type: 'message',
       chatJid,
       text: args.text,
       sender: args.sender || undefined,
+      label: args.label,
+      pin: args.pin,
+      upsert: args.upsert,
       groupFolder,
       timestamp: new Date().toISOString(),
     };
-
     writeIpcFile(MESSAGES_DIR, data);
-
     return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
+  },
+);
+
+server.tool(
+  'edit_message',
+  'Edit a previously-sent message identified by its label. Use this to keep a persistent status card up to date without re-posting.',
+  {
+    label: z.string().describe('Label used when sending the original message'),
+    text: z.string().describe('New message text'),
+  },
+  async (args) => {
+    writeIpcFile(MESSAGES_DIR, {
+      type: 'edit_message',
+      chatJid,
+      label: args.label,
+      text: args.text,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+    return { content: [{ type: 'text' as const, text: 'Edit queued.' }] };
+  },
+);
+
+server.tool(
+  'delete_message',
+  'Delete a previously-sent message by label.',
+  { label: z.string() },
+  async (args) => {
+    writeIpcFile(MESSAGES_DIR, {
+      type: 'delete_message',
+      chatJid,
+      label: args.label,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+    return { content: [{ type: 'text' as const, text: 'Delete queued.' }] };
+  },
+);
+
+server.tool(
+  'pin_message',
+  'Pin a previously-sent message by label.',
+  { label: z.string() },
+  async (args) => {
+    writeIpcFile(MESSAGES_DIR, {
+      type: 'pin_message',
+      chatJid,
+      label: args.label,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+    return { content: [{ type: 'text' as const, text: 'Pin queued.' }] };
+  },
+);
+
+server.tool(
+  'unpin_message',
+  'Unpin a previously-sent message by label.',
+  { label: z.string() },
+  async (args) => {
+    writeIpcFile(MESSAGES_DIR, {
+      type: 'unpin_message',
+      chatJid,
+      label: args.label,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+    return { content: [{ type: 'text' as const, text: 'Unpin queued.' }] };
+  },
+);
+
+server.tool(
+  'discord_add_reaction',
+  'Add a unicode emoji reaction to a Discord message. Target the message by its raw Discord message ID (from inbound messages) or by label (from a message you sent with a label). Unicode emoji only for v1 — e.g. "👍", "🎉", "❤️". Custom guild emoji are not supported.',
+  {
+    emoji: z
+      .string()
+      .describe('Unicode emoji character, e.g. "👍", "🎉", "❤️".'),
+    messageId: z
+      .string()
+      .optional()
+      .describe('Raw Discord message ID to react to (e.g. from an inbound message).'),
+    label: z
+      .string()
+      .optional()
+      .describe('Label of a previously-sent message to react to (alternative to messageId).'),
+  },
+  async (args) => {
+    if (!args.messageId && !args.label) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Provide either messageId or label.',
+          },
+        ],
+        isError: true,
+      };
+    }
+    writeIpcFile(MESSAGES_DIR, {
+      type: 'add_reaction',
+      chatJid,
+      messageId: args.messageId,
+      label: args.label,
+      emoji: args.emoji,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+    return {
+      content: [{ type: 'text' as const, text: 'Reaction queued.' }],
+    };
+  },
+);
+
+server.tool(
+  'discord_remove_reaction',
+  "Remove the bot's own unicode emoji reaction from a Discord message. Only removes reactions previously added by the bot.",
+  {
+    emoji: z.string().describe('Unicode emoji to remove.'),
+    messageId: z
+      .string()
+      .optional()
+      .describe('Raw Discord message ID.'),
+    label: z
+      .string()
+      .optional()
+      .describe('Label of a previously-sent message (alternative to messageId).'),
+  },
+  async (args) => {
+    if (!args.messageId && !args.label) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Provide either messageId or label.',
+          },
+        ],
+        isError: true,
+      };
+    }
+    writeIpcFile(MESSAGES_DIR, {
+      type: 'remove_reaction',
+      chatJid,
+      messageId: args.messageId,
+      label: args.label,
+      emoji: args.emoji,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+    return {
+      content: [{ type: 'text' as const, text: 'Reaction removal queued.' }],
+    };
   },
 );
 

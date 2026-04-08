@@ -7,6 +7,7 @@ import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import {
   NewMessage,
+  ReactionEvent,
   RegisteredGroup,
   ScheduledTask,
   TaskRunLog,
@@ -82,6 +83,20 @@ function createSchema(database: Database.Database): void {
       container_config TEXT,
       requires_trigger INTEGER DEFAULT 1
     );
+
+    CREATE TABLE IF NOT EXISTS reactions (
+      id TEXT PRIMARY KEY,
+      chat_jid TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      user_name TEXT,
+      emoji TEXT NOT NULL,
+      action TEXT NOT NULL,
+      on_bot_message INTEGER DEFAULT 0,
+      timestamp TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reactions_chat_ts ON reactions(chat_jid, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_reactions_msg ON reactions(message_id);
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -298,6 +313,25 @@ export function storeMessage(msg: NewMessage): void {
     msg.reply_to_message_id ?? null,
     msg.reply_to_message_content ?? null,
     msg.reply_to_sender_name ?? null,
+  );
+}
+
+/**
+ * Store a reaction event. Idempotent via primary key.
+ */
+export function storeReaction(event: ReactionEvent): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO reactions (id, chat_jid, message_id, user_id, user_name, emoji, action, on_bot_message, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    event.id,
+    event.chat_jid,
+    event.message_id,
+    event.user_id,
+    event.user_name,
+    event.emoji,
+    event.action,
+    event.on_bot_message ? 1 : 0,
+    event.timestamp,
   );
 }
 

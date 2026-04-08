@@ -10,6 +10,7 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'ONECLI_URL',
   'TZ',
+  'DISCORD_REACTIONS_INBOUND',
 ]);
 
 export const ASSISTANT_NAME =
@@ -68,7 +69,13 @@ function escapeRegex(str: string): string {
 }
 
 export function buildTriggerPattern(trigger: string): RegExp {
-  return new RegExp(`^${escapeRegex(trigger.trim())}\\b`, 'i');
+  // Strip any leading @ from the configured trigger, then match it with an
+  // OPTIONAL leading @ so users can address the bot either way:
+  //   "@Claudio do the thing"  — explicit prefix
+  //   "Claudio do the thing"   — bare name
+  // This matches how humans naturally address the bot in Discord.
+  const name = trigger.trim().replace(/^@+/, '');
+  return new RegExp(`^@?${escapeRegex(name)}\\b`, 'i');
 }
 
 export const DEFAULT_TRIGGER = `@${ASSISTANT_NAME}`;
@@ -94,3 +101,18 @@ function resolveConfigTimezone(): string {
   return 'UTC';
 }
 export const TIMEZONE = resolveConfigTimezone();
+
+// Discord inbound reactions mode:
+//   'all' — forward reactions on any message in registered channels
+//   'own' — only forward reactions on messages the bot sent (default, low noise)
+//   'off' — disable inbound reactions entirely
+function resolveReactionsMode(): 'all' | 'own' | 'off' {
+  const raw = (
+    process.env.DISCORD_REACTIONS_INBOUND ||
+    envConfig.DISCORD_REACTIONS_INBOUND ||
+    'own'
+  ).toLowerCase();
+  if (raw === 'all' || raw === 'own' || raw === 'off') return raw;
+  return 'own';
+}
+export const DISCORD_REACTIONS_INBOUND = resolveReactionsMode();

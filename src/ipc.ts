@@ -12,6 +12,24 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
+  sendMessageWithId?: (
+    jid: string,
+    text: string,
+  ) => Promise<string | undefined>;
+  editMessage?: (jid: string, messageId: string, text: string) => Promise<void>;
+  deleteMessage?: (jid: string, messageId: string) => Promise<void>;
+  pinMessage?: (jid: string, messageId: string) => Promise<void>;
+  unpinMessage?: (jid: string, messageId: string) => Promise<void>;
+  addReaction?: (
+    jid: string,
+    messageId: string,
+    emoji: string,
+  ) => Promise<void>;
+  removeReaction?: (
+    jid: string,
+    messageId: string,
+    emoji: string,
+  ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
@@ -26,6 +44,59 @@ export interface IpcDeps {
 }
 
 let ipcWatcherRunning = false;
+
+/**
+ * Decide whether a `message` IPC payload should upsert-edit an existing
+ * labeled message instead of posting a new one. Pure function for testing.
+ *
+ * Returns:
+ *   { action: 'edit', id }  — label exists and upsert requested
+ *   { action: 'create' }    — post a new message (label mapping updates after)
+ */
+export function decideMessageAction(
+  data: { upsert?: boolean; label?: string },
+  labels: Record<string, string>,
+): { action: 'edit'; id: string } | { action: 'create' } {
+  if (data.upsert && data.label) {
+    const id = labels[data.label];
+    if (id) return { action: 'edit', id };
+  }
+  return { action: 'create' };
+}
+
+function labelFilePath(sourceGroup: string): string {
+  return path.join(DATA_DIR, 'sessions', sourceGroup, 'message_labels.json');
+}
+
+function readLabels(sourceGroup: string): Record<string, string> {
+  try {
+    const p = labelFilePath(sourceGroup);
+    if (!fs.existsSync(p)) return {};
+    return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeLabels(
+  sourceGroup: string,
+  labels: Record<string, string>,
+): void {
+  const p = labelFilePath(sourceGroup);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(labels, null, 2));
+}
+
+function isAuthorized(
+  chatJid: string,
+  sourceGroup: string,
+  isMain: boolean,
+  registeredGroups: Record<string, RegisteredGroup>,
+): boolean {
+  if (isMain) return true;
+  const g = registeredGroups[chatJid];
+  return !!(g && g.folder === sourceGroup);
+}
 
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
@@ -74,24 +145,130 @@ export function startIpcWatcher(deps: IpcDeps): void {
             const filePath = path.join(messagesDir, file);
             try {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-              if (data.type === 'message' && data.chatJid && data.text) {
-                // Authorization: verify this group can send to this chatJid
-                const targetGroup = registeredGroups[data.chatJid];
-                if (
-                  isMain ||
-                  (targetGroup && targetGroup.folder === sourceGroup)
-                ) {
-                  await deps.sendMessage(data.chatJid, data.text);
+              const jid: string | undefined = data.chatJid;
+              if (
+                jid &&
+                !isAuthorized(jid, sourceGroup, isMain, registeredGroups)
+              ) {
+                logger.warn(
+                  { chatJid: jid, sourceGroup, type: data.type },
+                  'Unauthorized IPC message attempt blocked',
+                );
+              } else if (data.type === 'message' && jid && data.text) {
+                // Upsert: if caller passed `upsert: true` with a label that
+                // already exists, edit the existing message instead of
+                // posting a new one. Lets the agent use a single call for
+                // the pin-once-then-edit pattern.
+                const decision = decideMessageAction(
+                  data,
+                  readLabels(sourceGroup),
+                );
+                if (decision.action === 'edit' && deps.editMessage) {
+                  await deps.editMessage(jid, decision.id, data.text);
                   logger.info(
-                    { chatJid: data.chatJid, sourceGroup },
-                    'IPC message sent',
+                    { chatJid: jid, sourceGroup, label: data.label },
+                    'IPC message upserted (edit)',
+                  );
+                  try {
+                    fs.unlinkSync(filePath);
+                  } catch {
+                    /* ignore */
+                  }
+                  continue;
+                }
+                if (data.label && deps.sendMessageWithId) {
+                  const id = await deps.sendMessageWithId(jid, data.text);
+                  if (id) {
+                    const labels = readLabels(sourceGroup);
+                    labels[data.label] = id;
+                    writeLabels(sourceGroup, labels);
+                    if (data.pin && deps.pinMessage) {
+                      await deps.pinMessage(jid, id);
+                    }
+                  }
+                } else {
+                  await deps.sendMessage(jid, data.text);
+                }
+                logger.info(
+                  { chatJid: jid, sourceGroup, label: data.label },
+                  'IPC message sent',
+                );
+              } else if (
+                data.type === 'edit_message' &&
+                jid &&
+                data.label &&
+                data.text &&
+                deps.editMessage
+              ) {
+                const labels = readLabels(sourceGroup);
+                const id = labels[data.label];
+                if (id) {
+                  await deps.editMessage(jid, id, data.text);
+                  logger.info(
+                    { chatJid: jid, label: data.label },
+                    'IPC message edited',
                   );
                 } else {
                   logger.warn(
-                    { chatJid: data.chatJid, sourceGroup },
-                    'Unauthorized IPC message attempt blocked',
+                    { label: data.label, sourceGroup },
+                    'Edit: label not found',
                   );
                 }
+              } else if (
+                data.type === 'delete_message' &&
+                jid &&
+                data.label &&
+                deps.deleteMessage
+              ) {
+                const labels = readLabels(sourceGroup);
+                const id = labels[data.label];
+                if (id) {
+                  await deps.deleteMessage(jid, id);
+                  delete labels[data.label];
+                  writeLabels(sourceGroup, labels);
+                }
+              } else if (
+                data.type === 'pin_message' &&
+                jid &&
+                data.label &&
+                deps.pinMessage
+              ) {
+                const labels = readLabels(sourceGroup);
+                const id = labels[data.label];
+                if (id) await deps.pinMessage(jid, id);
+              } else if (
+                data.type === 'unpin_message' &&
+                jid &&
+                data.label &&
+                deps.unpinMessage
+              ) {
+                const labels = readLabels(sourceGroup);
+                const id = labels[data.label];
+                if (id) await deps.unpinMessage(jid, id);
+              } else if (
+                data.type === 'add_reaction' &&
+                jid &&
+                data.emoji &&
+                deps.addReaction
+              ) {
+                let id: string | undefined = data.messageId;
+                if (!id && data.label) {
+                  const labels = readLabels(sourceGroup);
+                  id = labels[data.label];
+                }
+                if (id) await deps.addReaction(jid, id, data.emoji);
+              } else if (
+                data.type === 'remove_reaction' &&
+                jid &&
+                data.emoji &&
+                deps.removeReaction
+              ) {
+                let id: string | undefined = data.messageId;
+                if (!id && data.label) {
+                  const labels = readLabels(sourceGroup);
+                  id = labels[data.label];
+                }
+                if (id) await deps.removeReaction(jid, id, data.emoji);
               }
               fs.unlinkSync(filePath);
             } catch (err) {

@@ -12,6 +12,7 @@ vi.mock('../env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
 vi.mock('../config.js', () => ({
   ASSISTANT_NAME: 'Andy',
   TRIGGER_PATTERN: /^@Andy\b/i,
+  DISCORD_REACTIONS_INBOUND: 'all',
 }));
 
 // Mock logger
@@ -35,6 +36,9 @@ vi.mock('discord.js', () => {
     MessageCreate: 'messageCreate',
     ClientReady: 'ready',
     Error: 'error',
+    InteractionCreate: 'interactionCreate',
+    MessageReactionAdd: 'messageReactionAdd',
+    MessageReactionRemove: 'messageReactionRemove',
   };
 
   const GatewayIntentBits = {
@@ -42,11 +46,39 @@ vi.mock('discord.js', () => {
     GuildMessages: 2,
     MessageContent: 4,
     DirectMessages: 8,
+    GuildMessageReactions: 16,
+    DirectMessageReactions: 32,
   };
+
+  const Partials = {
+    Channel: 'Channel',
+    Message: 'Message',
+    User: 'User',
+    GuildMember: 'GuildMember',
+    Reaction: 'Reaction',
+  };
+
+  class SlashCommandBuilder {
+    private data: any = {};
+    setName(n: string) {
+      this.data.name = n;
+      return this;
+    }
+    setDescription(d: string) {
+      this.data.description = d;
+      return this;
+    }
+    toJSON() {
+      return this.data;
+    }
+  }
 
   class MockClient {
     eventHandlers = new Map<string, Handler[]>();
     user: any = { id: '999888777', tag: 'Andy#1234' };
+    application: any = {
+      commands: { set: vi.fn().mockResolvedValue([]) },
+    };
     private _ready = false;
 
     constructor(_opts: any) {
@@ -66,10 +98,11 @@ vi.mock('discord.js', () => {
 
     async login(_token: string) {
       this._ready = true;
-      // Fire the ready event
+      // Fire the ready event — handler expects a readyClient with both
+      // `user` and `application.commands.set()` (for slash command registration)
       const readyHandlers = this.eventHandlers.get('ready') || [];
       for (const h of readyHandlers) {
-        h({ user: this.user });
+        await h({ user: this.user, application: this.application });
       }
     }
 
@@ -96,6 +129,8 @@ vi.mock('discord.js', () => {
     Client: MockClient,
     Events,
     GatewayIntentBits,
+    Partials,
+    SlashCommandBuilder,
     TextChannel,
   };
 });
@@ -161,9 +196,7 @@ function createMessage(overrides: {
     member: overrides.memberDisplayName
       ? { displayName: overrides.memberDisplayName }
       : null,
-    guild: overrides.guildName
-      ? { name: overrides.guildName }
-      : null,
+    guild: overrides.guildName ? { name: overrides.guildName } : null,
     channel: {
       name: overrides.channelName ?? 'general',
       messages: {
@@ -188,6 +221,43 @@ function currentClient() {
 async function triggerMessage(message: any) {
   const handlers = currentClient().eventHandlers.get('messageCreate') || [];
   for (const h of handlers) await h(message);
+}
+
+async function triggerReaction(
+  action: 'add' | 'remove',
+  reaction: any,
+  user: any,
+) {
+  const ev = action === 'add' ? 'messageReactionAdd' : 'messageReactionRemove';
+  const handlers = currentClient().eventHandlers.get(ev) || [];
+  for (const h of handlers) await h(reaction, user);
+}
+
+function createReaction(overrides: {
+  messageId?: string;
+  channelId?: string;
+  emojiName?: string | null;
+  emojiId?: string | null;
+  authorId?: string;
+  content?: string;
+}) {
+  return {
+    partial: false,
+    emoji: {
+      name: overrides.emojiName ?? '👍',
+      id: overrides.emojiId ?? null,
+    },
+    message: {
+      partial: false,
+      id: overrides.messageId ?? 'msg_xyz',
+      channelId: overrides.channelId ?? '1234567890123456',
+      content: overrides.content ?? 'hello there',
+      author: { id: overrides.authorId ?? '55512345' },
+    },
+    async fetch() {
+      return this;
+    },
+  };
 }
 
 // --- Tests ---
@@ -641,8 +711,11 @@ describe('DiscordChannel', () => {
 
       await channel.sendMessage('dc:1234567890123456', 'Hello');
 
-      const fetchedChannel = await currentClient().channels.fetch('1234567890123456');
-      expect(currentClient().channels.fetch).toHaveBeenCalledWith('1234567890123456');
+      const fetchedChannel =
+        await currentClient().channels.fetch('1234567890123456');
+      expect(currentClient().channels.fetch).toHaveBeenCalledWith(
+        '1234567890123456',
+      );
     });
 
     it('strips dc: prefix from JID', async () => {
@@ -762,6 +835,162 @@ describe('DiscordChannel', () => {
       await channel.setTyping('dc:1234567890123456', true);
 
       // No error
+    });
+  });
+
+  // --- Reactions (inbound) ---
+
+  describe('inbound reactions', () => {
+    it('forwards a unicode reaction on a registered channel', async () => {
+      const onReaction = vi.fn();
+      const channel = new DiscordChannel(
+        'test-token',
+        createTestOpts({ onReaction }),
+      );
+      await channel.connect();
+
+      await triggerReaction('add', createReaction({ emojiName: '🎉' }), {
+        id: 'user_1',
+        username: 'alice',
+        globalName: 'Alice',
+        bot: false,
+      });
+
+      expect(onReaction).toHaveBeenCalledTimes(1);
+      const [chatJid, event] = onReaction.mock.calls[0];
+      expect(chatJid).toBe('dc:1234567890123456');
+      expect(event).toMatchObject({
+        emoji: '🎉',
+        action: 'add',
+        user_id: 'user_1',
+        user_name: 'Alice',
+        on_bot_message: false,
+      });
+    });
+
+    it('fires on remove events', async () => {
+      const onReaction = vi.fn();
+      const channel = new DiscordChannel(
+        'test-token',
+        createTestOpts({ onReaction }),
+      );
+      await channel.connect();
+
+      await triggerReaction('remove', createReaction({ emojiName: '👍' }), {
+        id: 'user_2',
+        username: 'bob',
+        globalName: 'Bob',
+        bot: false,
+      });
+
+      expect(onReaction).toHaveBeenCalledTimes(1);
+      expect(onReaction.mock.calls[0][1].action).toBe('remove');
+    });
+
+    it('drops reactions from bots', async () => {
+      const onReaction = vi.fn();
+      const channel = new DiscordChannel(
+        'test-token',
+        createTestOpts({ onReaction }),
+      );
+      await channel.connect();
+
+      await triggerReaction('add', createReaction({}), {
+        id: 'other_bot',
+        username: 'somebot',
+        bot: true,
+      });
+
+      expect(onReaction).not.toHaveBeenCalled();
+    });
+
+    it("drops reactions from the bot's own user id", async () => {
+      const onReaction = vi.fn();
+      const channel = new DiscordChannel(
+        'test-token',
+        createTestOpts({ onReaction }),
+      );
+      await channel.connect();
+
+      await triggerReaction('add', createReaction({}), {
+        id: '999888777',
+        username: 'andy',
+        bot: false,
+      });
+
+      expect(onReaction).not.toHaveBeenCalled();
+    });
+
+    it('drops custom guild emoji (v1 unicode only)', async () => {
+      const onReaction = vi.fn();
+      const channel = new DiscordChannel(
+        'test-token',
+        createTestOpts({ onReaction }),
+      );
+      await channel.connect();
+
+      await triggerReaction(
+        'add',
+        createReaction({ emojiName: 'party_parrot', emojiId: '12345' }),
+        { id: 'user_3', username: 'alice', bot: false },
+      );
+
+      expect(onReaction).not.toHaveBeenCalled();
+    });
+
+    it('drops reactions in unregistered channels', async () => {
+      const onReaction = vi.fn();
+      const channel = new DiscordChannel(
+        'test-token',
+        createTestOpts({ onReaction }),
+      );
+      await channel.connect();
+
+      await triggerReaction(
+        'add',
+        createReaction({ channelId: 'unknown_channel' }),
+        { id: 'user_4', username: 'alice', bot: false },
+      );
+
+      expect(onReaction).not.toHaveBeenCalled();
+    });
+  });
+
+  // --- Reactions (outbound) ---
+
+  describe('outbound reactions', () => {
+    it('addReaction fetches message and calls react()', async () => {
+      const react = vi.fn().mockResolvedValue(undefined);
+      const opts = createTestOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      currentClient().channels.fetch = vi.fn().mockResolvedValue({
+        messages: {
+          fetch: vi.fn().mockResolvedValue({ react }),
+        },
+      });
+
+      await channel.addReaction('dc:1234567890123456', 'msg_abc', '👍');
+      expect(react).toHaveBeenCalledWith('👍');
+    });
+
+    it("removeReaction removes the bot's own reaction", async () => {
+      const remove = vi.fn().mockResolvedValue(undefined);
+      const resolve = vi.fn().mockReturnValue({ users: { remove } });
+      const opts = createTestOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      currentClient().channels.fetch = vi.fn().mockResolvedValue({
+        messages: {
+          fetch: vi.fn().mockResolvedValue({ reactions: { resolve } }),
+        },
+      });
+
+      await channel.removeReaction('dc:1234567890123456', 'msg_abc', '👍');
+      expect(resolve).toHaveBeenCalledWith('👍');
+      expect(remove).toHaveBeenCalledWith('999888777');
     });
   });
 

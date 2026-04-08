@@ -95,7 +95,38 @@ export interface Channel {
   setTyping?(jid: string, isTyping: boolean): Promise<void>;
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
+  // Optional: send a message and return its platform-native message ID.
+  // Channels that support label-based editing implement this.
+  sendMessageWithId?(jid: string, text: string): Promise<string | undefined>;
+  // Optional: edit an existing message by ID.
+  editMessage?(jid: string, messageId: string, text: string): Promise<void>;
+  // Optional: delete an existing message by ID.
+  deleteMessage?(jid: string, messageId: string): Promise<void>;
+  // Optional: pin an existing message by ID.
+  pinMessage?(jid: string, messageId: string): Promise<void>;
+  // Optional: unpin an existing message by ID.
+  unpinMessage?(jid: string, messageId: string): Promise<void>;
+  // Optional: add a unicode emoji reaction to a message by ID.
+  addReaction?(jid: string, messageId: string, emoji: string): Promise<void>;
+  // Optional: remove a unicode emoji reaction (the bot's own) from a message by ID.
+  removeReaction?(jid: string, messageId: string, emoji: string): Promise<void>;
 }
+
+// Inbound reaction event delivered by a channel.
+export interface ReactionEvent {
+  id: string; // synthetic: `${messageId}:${userId}:${emoji}:${action}:${timestamp}`
+  chat_jid: string;
+  message_id: string;
+  user_id: string;
+  user_name: string;
+  emoji: string; // unicode only for v1
+  action: 'add' | 'remove';
+  timestamp: string;
+  on_bot_message: boolean;
+  target_snippet?: string; // short preview of the message being reacted to
+}
+
+export type OnReaction = (chatJid: string, event: ReactionEvent) => void;
 
 // Callback type that channels use to deliver inbound messages
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;

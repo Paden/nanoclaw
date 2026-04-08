@@ -17,6 +17,7 @@ import {
 } from './config.js';
 import './channels/index.js';
 import {
+  ChannelOpts,
   getChannelFactory,
   getRegisteredChannelNames,
 } from './channels/registry.js';
@@ -46,6 +47,7 @@ import {
   setSession,
   storeChatMetadata,
   storeMessage,
+  storeReaction,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -693,7 +695,7 @@ async function main(): Promise<void> {
   }
 
   // Channel callbacks (shared by all channels)
-  const channelOpts = {
+  const channelOpts: ChannelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
       // Remote control commands — intercept before storage
       const trimmed = msg.content.trim();
@@ -730,6 +732,24 @@ async function main(): Promise<void> {
       isGroup?: boolean,
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
+    onReaction: (chatJid, event) => {
+      if (!registeredGroups[chatJid]) return;
+      storeReaction(event);
+      // Surface as a text line in the message stream so the agent sees it.
+      const snippet = event.target_snippet
+        ? ` on "${event.target_snippet}"`
+        : '';
+      const target = event.on_bot_message ? ' (your message)' : '';
+      storeMessage({
+        id: `rx-${event.id}`,
+        chat_jid: chatJid,
+        sender: event.user_id,
+        sender_name: event.user_name,
+        content: `[reaction:${event.action}] ${event.emoji} by ${event.user_name}${target} on message ${event.message_id}${snippet}`,
+        timestamp: event.timestamp,
+        is_from_me: false,
+      });
+    },
   };
 
   // Create and connect all registered channels.
@@ -796,6 +816,16 @@ async function main(): Promise<void> {
     unpinMessage: async (jid, messageId) => {
       const channel = findChannel(channels, jid);
       if (channel?.unpinMessage) await channel.unpinMessage(jid, messageId);
+    },
+    addReaction: async (jid, messageId, emoji) => {
+      const channel = findChannel(channels, jid);
+      if (channel?.addReaction)
+        await channel.addReaction(jid, messageId, emoji);
+    },
+    removeReaction: async (jid, messageId, emoji) => {
+      const channel = findChannel(channels, jid);
+      if (channel?.removeReaction)
+        await channel.removeReaction(jid, messageId, emoji);
     },
     registeredGroups: () => registeredGroups,
     registerGroup,
