@@ -8,7 +8,7 @@ import {
   getTaskById,
   setRegisteredGroup,
 } from './db.js';
-import { processTaskIpc, IpcDeps } from './ipc.js';
+import { processTaskIpc, IpcDeps, decideMessageAction } from './ipc.js';
 import { RegisteredGroup } from './types.js';
 
 // Set up registered groups used across tests
@@ -675,5 +675,28 @@ describe('register_group success', () => {
     );
 
     expect(getRegisteredGroup('partial@g.us')).toBeUndefined();
+  });
+});
+
+describe('decideMessageAction', () => {
+  it('edits when upsert + label exists', () => {
+    expect(
+      decideMessageAction({ upsert: true, label: 'card' }, { card: 'msg-123' }),
+    ).toEqual({ action: 'edit', id: 'msg-123' });
+  });
+  it('creates when upsert true but label unknown', () => {
+    expect(decideMessageAction({ upsert: true, label: 'card' }, {})).toEqual({
+      action: 'create',
+    });
+  });
+  it('creates when upsert is false even if label exists', () => {
+    expect(decideMessageAction({ label: 'card' }, { card: 'msg-123' })).toEqual(
+      { action: 'create' },
+    );
+  });
+  it('creates when no label', () => {
+    expect(decideMessageAction({ upsert: true }, { card: 'x' })).toEqual({
+      action: 'create',
+    });
   });
 });
