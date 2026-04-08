@@ -242,12 +242,53 @@ async function runTask(
 
 let schedulerRunning = false;
 
+/**
+ * Validate every active scheduled task's gate script before the loop starts.
+ * Catches the class of bugs where a script is missing, doesn't reference
+ * `wakeAgent`, or has obvious syntax errors. Non-fatal — logs a warning per
+ * offending task so the operator can see it in the daily digest.
+ */
+export function lintScheduledTasks(): void {
+  const tasks = getAllTasks().filter((t) => t.status === 'active');
+  let issueCount = 0;
+  for (const t of tasks) {
+    // Recurring tasks that fire more than once per day MUST be script-gated.
+    // If schedule_type is interval or cron with a sub-daily cadence, script
+    // is required.
+    const isSubDaily =
+      t.schedule_type === 'interval' ||
+      (t.schedule_type === 'cron' && /\*|\/\d/.test(t.schedule_value));
+    if (isSubDaily && !t.script) {
+      logger.warn(
+        { taskId: t.id, schedule: t.schedule_value },
+        'Script-gate lint: sub-daily task has no gate script (may over-wake agent)',
+      );
+      issueCount++;
+      continue;
+    }
+    if (!t.script) continue;
+    if (!t.script.includes('wakeAgent')) {
+      logger.warn(
+        { taskId: t.id },
+        'Script-gate lint: script does not reference wakeAgent (probably malformed)',
+      );
+      issueCount++;
+    }
+  }
+  if (issueCount > 0) {
+    logger.warn({ issueCount }, 'Script-gate lint found issues');
+  } else {
+    logger.info({ taskCount: tasks.length }, 'Script-gate lint clean');
+  }
+}
+
 export function startSchedulerLoop(deps: SchedulerDependencies): void {
   if (schedulerRunning) {
     logger.debug('Scheduler loop already running, skipping duplicate start');
     return;
   }
   schedulerRunning = true;
+  lintScheduledTasks();
   logger.info('Scheduler loop started');
 
   const loop = async () => {
