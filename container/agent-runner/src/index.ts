@@ -220,6 +220,39 @@ function generateFallbackName(): string {
   return `conversation-${time.getHours().toString().padStart(2, '0')}${time.getMinutes().toString().padStart(2, '0')}`;
 }
 
+interface AnthropicIncident {
+  name: string;
+  status: string;
+  shortlink: string;
+}
+
+// Best-effort check of status.claude.com for an active incident.
+// Returns the most recent unresolved incident, or null on any failure.
+async function checkAnthropicStatus(): Promise<AnthropicIncident | null> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(
+      'https://status.claude.com/api/v2/incidents/unresolved.json',
+      { signal: ctrl.signal },
+    );
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      incidents?: Array<{ name: string; status: string; shortlink: string }>;
+    };
+    const incident = data.incidents?.[0];
+    if (!incident) return null;
+    return {
+      name: incident.name,
+      status: incident.status,
+      shortlink: incident.shortlink,
+    };
+  } catch {
+    return null;
+  }
+}
+
 interface ParsedMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -411,6 +444,12 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  let apiRetryCount = 0;
+  let apiRetryReported = false;
+  // Set when the agent calls `send_message` mid-turn. Suppresses the final
+  // result text so we don't double-post (one from the tool call, one from
+  // the orchestrator posting result.result).
+  let sentViaIpc = false;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
@@ -435,6 +474,89 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
+  const allowedTools = [
+    'Bash',
+    'Read',
+    'Write',
+    'Edit',
+    'Glob',
+    'Grep',
+    'WebSearch',
+    'WebFetch',
+    'Task',
+    'TaskOutput',
+    'TaskStop',
+    'TeamCreate',
+    'TeamDelete',
+    'TodoWrite',
+    'ToolSearch',
+    'Skill',
+    'NotebookEdit',
+    'mcp__nanoclaw__*',
+    'mcp__airtable__*',
+    'mcp__google-calendar__*',
+    'mcp__google-sheets__*',
+  ];
+
+  const mcpServers: Record<string, unknown> = {
+    nanoclaw: {
+      command: 'node',
+      args: [mcpServerPath],
+      env: {
+        NANOCLAW_CHAT_JID: containerInput.chatJid,
+        NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
+        NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+      },
+    },
+    ...(process.env.AIRTABLE_API_KEY
+      ? {
+          airtable: {
+            command: 'airtable-mcp-server',
+            args: [],
+            env: { AIRTABLE_API_KEY: process.env.AIRTABLE_API_KEY },
+          },
+        }
+      : {}),
+    ...(process.env.GOOGLE_OAUTH_CREDENTIALS
+      ? {
+          'google-calendar': {
+            command: 'google-calendar-mcp',
+            args: [],
+            env: {
+              GOOGLE_OAUTH_CREDENTIALS: process.env.GOOGLE_OAUTH_CREDENTIALS,
+              GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+                process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH || '',
+            },
+          },
+        }
+      : {}),
+    ...(process.env.GOOGLE_SHEETS_MCP_ENABLED
+      ? {
+          'google-sheets': {
+            command: 'mcp-google-sheets',
+            args: [],
+            env: {
+              GOOGLE_APPLICATION_CREDENTIALS:
+                process.env.GOOGLE_APPLICATION_CREDENTIALS || '',
+            },
+          },
+        }
+      : {}),
+  };
+
+  // Startup assertion: every registered MCP server MUST have a matching
+  // `mcp__{name}__*` entry in allowedTools, otherwise tools from that server
+  // are silently disallowed. This class of bug once ate days of debugging
+  // when the allowlist used underscores and server names used hyphens.
+  for (const name of Object.keys(mcpServers)) {
+    const pattern = `mcp__${name}__*`;
+    if (!allowedTools.includes(pattern)) {
+      throw new Error(
+        `MCP allowlist mismatch: server '${name}' is registered in mcpServers but '${pattern}' is not in allowedTools. All tools from this server would be silently disallowed.`,
+      );
+    }
+  }
+
   for await (const message of query({
     prompt: stream,
     options: {
@@ -449,42 +571,12 @@ async function runQuery(
             append: globalClaudeMd,
           }
         : undefined,
-      allowedTools: [
-        'Bash',
-        'Read',
-        'Write',
-        'Edit',
-        'Glob',
-        'Grep',
-        'WebSearch',
-        'WebFetch',
-        'Task',
-        'TaskOutput',
-        'TaskStop',
-        'TeamCreate',
-        'TeamDelete',
-        'SendMessage',
-        'TodoWrite',
-        'ToolSearch',
-        'Skill',
-        'NotebookEdit',
-        'mcp__nanoclaw__*',
-      ],
+      allowedTools,
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       settingSources: ['project', 'user'],
-      mcpServers: {
-        nanoclaw: {
-          command: 'node',
-          args: [mcpServerPath],
-          env: {
-            NANOCLAW_CHAT_JID: containerInput.chatJid,
-            NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
-            NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
-          },
-        },
-      },
+      mcpServers: mcpServers as never,
       hooks: {
         PreCompact: [
           { hooks: [createPreCompactHook(containerInput.assistantName)] },
@@ -501,11 +593,77 @@ async function runQuery(
 
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
+      // Per-group tool-call log: extract any tool_use blocks from this
+      // assistant message and append to /workspace/group/logs/tool-calls.jsonl
+      // so the operator can grep "did the agent actually call sheets?"
+      // without spelunking docker logs.
+      try {
+        const content = (message as { message?: { content?: unknown[] } })
+          .message?.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            const b = block as { type?: string; name?: string; input?: unknown };
+            if (b.type === 'tool_use') {
+              if (b.name === 'mcp__nanoclaw__send_message') {
+                // Only suppress the orchestrator's auto-text-post if the
+                // agent sent a *plain user-facing reply* via IPC. Pin
+                // upserts (label set, e.g. "status_card") are sidebar UI
+                // writes, not chat replies — they must NOT block the
+                // agent's actual text response from being posted.
+                const input = b.input as
+                  | { label?: string; pin?: boolean; upsert?: boolean }
+                  | undefined;
+                const isPinOrLabeled = !!(input?.label || input?.pin || input?.upsert);
+                if (!isPinOrLabeled) sentViaIpc = true;
+              }
+              const line =
+                JSON.stringify({
+                  t: new Date().toISOString(),
+                  tool: b.name,
+                  input_preview: JSON.stringify(b.input).slice(0, 200),
+                }) + '\n';
+              const logDir = '/workspace/group/logs';
+              // Fire-and-forget async append — never block the message loop
+              // on a disk write. mkdir + append happen in the background.
+              fs.promises
+                .mkdir(logDir, { recursive: true })
+                .then(() =>
+                  fs.promises.appendFile(path.join(logDir, 'tool-calls.jsonl'), line),
+                )
+                .catch(() => {
+                  /* best effort */
+                });
+            }
+          }
+        }
+      } catch {
+        /* best effort */
+      }
     }
 
     if (message.type === 'system' && message.subtype === 'init') {
       newSessionId = message.session_id;
       log(`Session initialized: ${newSessionId}`);
+    }
+
+    // Detect upstream Anthropic outages: the SDK swallows 429/529 and emits
+    // `api_retry` events. After 3 in a row, check status.claude.com and
+    // bail out with a user-facing message + incident link instead of hanging.
+    if (
+      message.type === 'system' &&
+      (message as { subtype?: string }).subtype === 'api_retry'
+    ) {
+      apiRetryCount++;
+      if (apiRetryCount >= 3 && !apiRetryReported) {
+        apiRetryReported = true;
+        const incident = await checkAnthropicStatus();
+        const msg = incident
+          ? `⚠️ Anthropic API outage: **${incident.name}** (${incident.status}). Details: ${incident.shortlink}`
+          : `⚠️ Anthropic API is failing repeatedly (3+ retries) but no public incident is listed. Check https://status.claude.com`;
+        log(`api_retry threshold hit — ${msg}`);
+        writeOutput({ status: 'success', result: msg, newSessionId });
+        return { newSessionId, lastAssistantUuid, closedDuringQuery };
+      }
     }
 
     if (
@@ -531,9 +689,13 @@ async function runQuery(
       );
       writeOutput({
         status: 'success',
-        result: textResult || null,
+        result: sentViaIpc ? null : textResult || null,
         newSessionId,
       });
+      // Reset per-turn flag: in streaming mode this same query() handles
+      // multiple user inputs. Without resetting, a previous turn's plain
+      // send_message would suppress the *next* turn's result text.
+      sentViaIpc = false;
     }
   }
 

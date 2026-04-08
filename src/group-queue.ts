@@ -25,6 +25,14 @@ interface GroupState {
   containerName: string | null;
   groupFolder: string | null;
   retryCount: number;
+  /** ms since epoch when the current container was registered. Used to
+   * detect stale containers when CLAUDE.md (group or global) is edited
+   * mid-session, so we recycle instead of replaying old persona. */
+  containerStartedAt: number | null;
+  /** Set when a stale-persona recycle was deferred because the container was
+   * mid-turn. Honored on the next notifyIdle: purge session + closeStdin so
+   * the next message spawns a fresh container. */
+  recycleAfterTurn: boolean;
 }
 
 export class GroupQueue {
@@ -49,6 +57,8 @@ export class GroupQueue {
         containerName: null,
         groupFolder: null,
         retryCount: 0,
+        containerStartedAt: null,
+        recycleAfterTurn: false,
       };
       this.groups.set(groupJid, state);
     }
@@ -138,7 +148,38 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.process = proc;
     state.containerName = containerName;
+    state.containerStartedAt = Date.now();
     if (groupFolder) state.groupFolder = groupFolder;
+  }
+
+  /**
+   * Returns the newest mtime (ms since epoch) of any persona file the
+   * container relies on: the group's own CLAUDE.md plus all *.md files in
+   * groups/global/. Returns 0 if none exist.
+   */
+  private newestPersonaMtime(groupFolder: string): number {
+    const projectRoot = process.cwd();
+    const candidates: string[] = [
+      path.join(projectRoot, 'groups', groupFolder, 'CLAUDE.md'),
+    ];
+    const globalDir = path.join(projectRoot, 'groups', 'global');
+    try {
+      for (const entry of fs.readdirSync(globalDir)) {
+        if (entry.endsWith('.md')) candidates.push(path.join(globalDir, entry));
+      }
+    } catch {
+      // global dir may not exist on minimal installs
+    }
+    let max = 0;
+    for (const f of candidates) {
+      try {
+        const m = fs.statSync(f).mtimeMs;
+        if (m > max) max = m;
+      } catch {
+        // missing file is fine
+      }
+    }
+    return max;
   }
 
   /**
@@ -149,6 +190,15 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.idleWaiting = true;
     if (state.pendingTasks.length > 0) {
+      this.closeStdin(groupJid);
+      return;
+    }
+    // Deferred persona recycle: the in-flight turn finished, now safe to
+    // wind down. The next container will load the updated CLAUDE.md fresh
+    // on startup AND resume the conversation history (sessionId is kept) —
+    // best of both worlds: new persona, continuous context.
+    if (state.recycleAfterTurn) {
+      logger.info({ groupJid }, 'Honoring deferred persona recycle on idle');
       this.closeStdin(groupJid);
     }
   }
@@ -161,6 +211,49 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.groupFolder || state.isTaskContainer)
       return false;
+
+    // Recycle stale containers: if any persona file (group CLAUDE.md or any
+    // global/*.md) is newer than this container's start time, the container
+    // is running with an outdated persona. Wind it down and return false so
+    // the caller spawns a fresh one — preserves message ordering because
+    // enqueueMessageCheck re-reads from the DB cursor.
+    if (state.containerStartedAt) {
+      const newestMtime = this.newestPersonaMtime(state.groupFolder);
+      if (newestMtime > state.containerStartedAt) {
+        // If the container is mid-turn, killing stdin now would terminate
+        // in-flight work and silently drop the user's message (the agent
+        // never gets to reply). Defer the recycle: mark the flag, return
+        // false so the caller's enqueueMessageCheck sets pendingMessages,
+        // and let notifyIdle wind the container down once the current turn
+        // completes. drainGroup will then spawn a fresh container that
+        // reads from the DB cursor — message preserved, persona refreshed.
+        if (!state.idleWaiting) {
+          if (!state.recycleAfterTurn) {
+            logger.info(
+              {
+                groupJid,
+                startedAt: state.containerStartedAt,
+                personaMtime: newestMtime,
+              },
+              'Deferring persona recycle until current turn finishes',
+            );
+            state.recycleAfterTurn = true;
+          }
+          return false;
+        }
+        logger.info(
+          {
+            groupJid,
+            startedAt: state.containerStartedAt,
+            personaMtime: newestMtime,
+          },
+          'Recycling stale container — persona file edited since start',
+        );
+        this.closeStdin(groupJid);
+        return false;
+      }
+    }
+
     state.idleWaiting = false; // Agent is about to receive work, no longer idle
 
     const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
@@ -225,7 +318,9 @@ export class GroupQueue {
       state.active = false;
       state.process = null;
       state.containerName = null;
+      state.containerStartedAt = null;
       state.groupFolder = null;
+      state.recycleAfterTurn = false;
       this.activeCount--;
       this.drainGroup(groupJid);
     }
@@ -254,7 +349,9 @@ export class GroupQueue {
       state.runningTaskId = null;
       state.process = null;
       state.containerName = null;
+      state.containerStartedAt = null;
       state.groupFolder = null;
+      state.recycleAfterTurn = false;
       this.activeCount--;
       this.drainGroup(groupJid);
     }
