@@ -294,12 +294,6 @@ async function buildContainerArgs(
     );
   }
 
-  // Pass optional MCP server credentials into the container
-  const mcpEnv = readEnvFile(['AIRTABLE_API_KEY']);
-  if (mcpEnv.AIRTABLE_API_KEY) {
-    args.push('-e', `AIRTABLE_API_KEY=${mcpEnv.AIRTABLE_API_KEY}`);
-  }
-
   // Google Sheets MCP — mount gcloud ADC file (uses Application Default Credentials)
   const gcloudAdcPath = path.join(
     process.env.HOME || os.homedir(),
