@@ -6,6 +6,7 @@ import path from 'path';
 
 import {
   ASSISTANT_NAME,
+  DATA_DIR,
   GROUPS_DIR,
   SCHEDULER_POLL_INTERVAL,
   TIMEZONE,
@@ -98,6 +99,19 @@ export async function runGateScript(
     'application_default_credentials.json',
   );
 
+  // Google Calendar OAuth paths (host equivalents of container mounts)
+  const gcalCredsPath = path.join(
+    DATA_DIR,
+    'google-calendar',
+    'gcp-oauth.keys.json',
+  );
+  const gcalTokenPath = path.join(
+    process.env.HOME || os.homedir(),
+    '.config',
+    'google-calendar-mcp',
+    'tokens.json',
+  );
+
   // Rewrite container paths to host paths in the inline script
   let rewritten = script
     .replaceAll('/workspace/group', groupDir)
@@ -106,7 +120,15 @@ export async function runGateScript(
       '/home/node/.config/gcloud/application_default_credentials.json',
       hostAdcPath,
     )
-    .replaceAll('/home/node/.config/gcloud', path.dirname(hostAdcPath));
+    .replaceAll('/home/node/.config/gcloud', path.dirname(hostAdcPath))
+    .replaceAll(
+      '/home/node/.config/google-calendar-mcp/gcp-oauth.keys.json',
+      gcalCredsPath,
+    )
+    .replaceAll(
+      '/home/node/.config/google-calendar-mcp/tokens.json',
+      gcalTokenPath,
+    );
 
   const scriptPath = path.join(os.tmpdir(), `nanoclaw-gate-${Date.now()}.sh`);
   fs.writeFileSync(scriptPath, rewritten, { mode: 0o755 });
