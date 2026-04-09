@@ -9,7 +9,8 @@
 
 import fs from 'fs';
 
-const ADC_PATH = '/home/node/.config/gcloud/application_default_credentials.json';
+const ADC_PATH = process.env.GOOGLE_APPLICATION_CREDENTIALS
+  || '/home/node/.config/gcloud/application_default_credentials.json';
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 export async function getAccessToken({ fetchFn = fetch, adcPath = ADC_PATH } = {}) {

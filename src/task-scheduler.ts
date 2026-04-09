@@ -1,8 +1,15 @@
-import { ChildProcess } from 'child_process';
+import { ChildProcess, execFile } from 'child_process';
 import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
-import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
+import {
+  ASSISTANT_NAME,
+  GROUPS_DIR,
+  SCHEDULER_POLL_INTERVAL,
+  TIMEZONE,
+} from './config.js';
 import {
   ContainerOutput,
   runContainerAgent,
@@ -61,6 +68,110 @@ export function computeNextRun(task: ScheduledTask): string | null {
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Host-side gate script runner
+// ---------------------------------------------------------------------------
+// Runs the task's gate script on the host instead of inside a container.
+// Container paths (/workspace/group, /workspace/global, ADC) are rewritten
+// to their host equivalents. If wakeAgent is false, the container is never
+// spawned — eliminating Docker overhead for the common case.
+
+const GATE_SCRIPT_TIMEOUT_MS = 30_000;
+
+interface GateResult {
+  wakeAgent: boolean;
+  data?: unknown;
+}
+
+export async function runGateScript(
+  script: string,
+  groupFolder: string,
+): Promise<GateResult | null> {
+  const groupDir = resolveGroupFolderPath(groupFolder);
+  const globalDir = path.resolve(GROUPS_DIR, 'global');
+  const hostAdcPath = path.join(
+    process.env.HOME || os.homedir(),
+    '.config',
+    'gcloud',
+    'application_default_credentials.json',
+  );
+
+  // Rewrite container paths to host paths in the inline script
+  let rewritten = script
+    .replaceAll('/workspace/group', groupDir)
+    .replaceAll('/workspace/global', globalDir)
+    .replaceAll(
+      '/home/node/.config/gcloud/application_default_credentials.json',
+      hostAdcPath,
+    )
+    .replaceAll('/home/node/.config/gcloud', path.dirname(hostAdcPath));
+
+  const scriptPath = path.join(os.tmpdir(), `nanoclaw-gate-${Date.now()}.sh`);
+  fs.writeFileSync(scriptPath, rewritten, { mode: 0o755 });
+
+  try {
+    return await new Promise<GateResult | null>((resolve) => {
+      execFile(
+        'bash',
+        [scriptPath],
+        {
+          timeout: GATE_SCRIPT_TIMEOUT_MS,
+          maxBuffer: 1024 * 1024,
+          env: {
+            ...process.env,
+            TZ: TIMEZONE,
+            GOOGLE_APPLICATION_CREDENTIALS: hostAdcPath,
+          },
+          cwd: groupDir,
+        },
+        (error, stdout, stderr) => {
+          if (stderr) {
+            logger.debug(
+              { groupFolder, stderr: stderr.slice(0, 500) },
+              'Gate script stderr',
+            );
+          }
+          if (error) {
+            logger.warn(
+              { groupFolder, error: error.message },
+              'Gate script error',
+            );
+            return resolve(null);
+          }
+
+          const lines = stdout.trim().split('\n');
+          const lastLine = lines[lines.length - 1];
+          if (!lastLine) {
+            logger.warn({ groupFolder }, 'Gate script produced no output');
+            return resolve(null);
+          }
+
+          try {
+            const result = JSON.parse(lastLine);
+            if (typeof result.wakeAgent !== 'boolean') {
+              logger.warn({ groupFolder }, 'Gate script missing wakeAgent');
+              return resolve(null);
+            }
+            resolve(result as GateResult);
+          } catch {
+            logger.warn(
+              { groupFolder, output: lastLine.slice(0, 200) },
+              'Gate script output not JSON',
+            );
+            resolve(null);
+          }
+        },
+      );
+    });
+  } finally {
+    try {
+      fs.unlinkSync(scriptPath);
+    } catch {
+      /* best effort */
+    }
+  }
 }
 
 export interface SchedulerDependencies {
@@ -148,6 +259,32 @@ async function runTask(
     })),
   );
 
+  // Run gate script on the host — skip the container entirely if wakeAgent is false.
+  let gateData: unknown = undefined;
+  if (task.script && task.script.trim()) {
+    logger.info({ taskId: task.id }, 'Running gate script on host');
+    const gateResult = await runGateScript(task.script, task.group_folder);
+
+    if (!gateResult || !gateResult.wakeAgent) {
+      const reason = gateResult ? 'wakeAgent=false' : 'script error/no output';
+      logger.debug({ taskId: task.id, reason }, 'Gate script skipped agent');
+      logTaskRun({
+        task_id: task.id,
+        run_at: new Date().toISOString(),
+        duration_ms: Date.now() - startTime,
+        status: 'success',
+        result: null,
+        error: null,
+      });
+      const nextRun = computeNextRun(task);
+      updateTaskAfterRun(task.id, nextRun, `Gate: ${reason}`);
+      return;
+    }
+
+    logger.info({ taskId: task.id }, 'Gate script passed, spawning agent');
+    gateData = gateResult.data;
+  }
+
   let result: string | null = null;
   let error: string | null = null;
 
@@ -171,17 +308,24 @@ async function runTask(
   };
 
   try {
+    // If the gate script ran on the host, enrich the prompt with its data
+    // and don't pass the script to the container (already resolved).
+    const prompt =
+      gateData !== undefined
+        ? `[SCHEDULED TASK]\n\nScript output:\n${JSON.stringify(gateData, null, 2)}\n\nInstructions:\n${task.prompt}`
+        : task.prompt;
+
     const output = await runContainerAgent(
       group,
       {
-        prompt: task.prompt,
+        prompt,
         sessionId,
         groupFolder: task.group_folder,
         chatJid: task.chat_jid,
         isMain,
         isScheduledTask: true,
         assistantName: ASSISTANT_NAME,
-        script: task.script || undefined,
+        script: gateData !== undefined ? undefined : task.script || undefined,
       },
       (proc, containerName) =>
         deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
