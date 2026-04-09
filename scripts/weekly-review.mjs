@@ -200,12 +200,100 @@ function fmt(n) {
   return String(n);
 }
 
+// ── 5. Task health ────────────────────────────────────────────────
+
+let taskReport = '';
+
+function checkTaskHealth() {
+  if (!existsSync(DB_PATH)) return;
+
+  try {
+    const db = new Database(DB_PATH, { readonly: true });
+
+    const tableExists = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scheduled_tasks'")
+      .get();
+    if (!tableExists) {
+      db.close();
+      return;
+    }
+
+    const active = db
+      .prepare("SELECT id, schedule_type, schedule_value, script, group_folder, last_result FROM scheduled_tasks WHERE status = 'active'")
+      .all();
+
+    if (active.length === 0) {
+      db.close();
+      return;
+    }
+
+    let gated = 0;
+    let ungated = 0;
+    let subDailyUngated = [];
+    let errored = [];
+
+    for (const t of active) {
+      const hasScript = !!(t.script && t.script.trim());
+      if (hasScript) {
+        gated++;
+      } else {
+        ungated++;
+      }
+
+      // Flag sub-daily tasks without gates (shouldn't exist after enforcement,
+      // but catches manually-inserted or legacy tasks)
+      if (!hasScript && t.schedule_type !== 'once') {
+        const isSubDaily = t.schedule_type === 'interval' ||
+          (t.schedule_type === 'cron' && /\*\/\d|,/.test(t.schedule_value));
+        if (isSubDaily) {
+          subDailyUngated.push(`${t.id} (${t.schedule_value})`);
+        }
+      }
+
+      // Flag tasks with recent errors
+      if (t.last_result && t.last_result.startsWith('Error:')) {
+        const name = t.group_folder.replace(/^discord_/, '');
+        errored.push(`${name}/${t.id}: ${t.last_result.slice(0, 80)}`);
+      }
+    }
+
+    const lines = [`\n**Task health:** ${active.length} active (${gated} gated, ${ungated} ungated)`];
+
+    if (subDailyUngated.length > 0) {
+      issues.push(`**Ungated sub-daily tasks:** ${subDailyUngated.join(', ')}`);
+    }
+
+    if (errored.length > 0) {
+      lines.push(`⚠️ Tasks with errors:\n${errored.map(e => `  ${e}`).join('\n')}`);
+    }
+
+    // Schedule summary by group
+    const byGroup = {};
+    for (const t of active) {
+      const name = t.group_folder.replace(/^discord_/, '');
+      if (!byGroup[name]) byGroup[name] = [];
+      const gate = t.script ? '🔒' : '  ';
+      byGroup[name].push(`${gate} ${t.schedule_type}(${t.schedule_value})`);
+    }
+    lines.push('Schedule summary:');
+    for (const [group, schedules] of Object.entries(byGroup).sort()) {
+      lines.push(`  ${group}: ${schedules.join(', ')}`);
+    }
+
+    taskReport = lines.join('\n');
+    db.close();
+  } catch {
+    // DB not available or schema mismatch — skip silently
+  }
+}
+
 // ── Run ────────────────────────────────────────────────────────────
 
 checkBudgets();
 checkRefs();
 checkUpstream();
 checkTokenUsage();
+checkTaskHealth();
 
 const now = new Date().toLocaleDateString('en-US', {
   weekday: 'long',
@@ -215,10 +303,10 @@ const now = new Date().toLocaleDateString('en-US', {
 
 if (issues.length === 0) {
   console.log(
-    `**Weekly Review — ${now}**\n✅ All clear. ${stats.filesChecked} files checked, ${stats.refsChecked} refs validated, upstream in sync.${usageReport}`,
+    `**Weekly Review — ${now}**\n✅ All clear. ${stats.filesChecked} files checked, ${stats.refsChecked} refs validated, upstream in sync.${usageReport}${taskReport}`,
   );
 } else {
   console.log(
-    `**Weekly Review — ${now}**\n${stats.filesChecked} files checked, ${stats.refsChecked} refs validated.\n\n${issues.map((i) => `- ${i}`).join('\n')}${usageReport}`,
+    `**Weekly Review — ${now}**\n${stats.filesChecked} files checked, ${stats.refsChecked} refs validated.\n\n${issues.map((i) => `- ${i}`).join('\n')}${usageReport}${taskReport}`,
   );
 }
