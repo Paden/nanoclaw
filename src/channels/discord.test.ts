@@ -699,6 +699,53 @@ describe('DiscordChannel', () => {
         }),
       );
     });
+
+    it('includes a snippet of the replied-to message when present', async () => {
+      const opts = createTestOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      const msg = createMessage({
+        content: 'yes please',
+        reference: { messageId: 'original_msg_id' },
+        guildName: 'Server',
+      });
+      msg.channel.messages.fetch = vi.fn().mockResolvedValue({
+        author: { username: 'Bob', displayName: 'Bob' },
+        member: { displayName: 'Bob' },
+        content: "what's the weather?",
+      });
+      await triggerMessage(msg);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'dc:1234567890123456',
+        expect.objectContaining({
+          content: `[Reply to Bob "what's the weather?"] yes please`,
+        }),
+      );
+    });
+
+    it('truncates long replied-to message snippets', async () => {
+      const opts = createTestOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      const long = 'x'.repeat(300);
+      const msg = createMessage({
+        content: 'ok',
+        reference: { messageId: 'original_msg_id' },
+        guildName: 'Server',
+      });
+      msg.channel.messages.fetch = vi.fn().mockResolvedValue({
+        author: { username: 'Bob', displayName: 'Bob' },
+        member: { displayName: 'Bob' },
+        content: long,
+      });
+      await triggerMessage(msg);
+
+      const call = (opts.onMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[1].content).toBe(`[Reply to Bob "${'x'.repeat(200)}…"] ok`);
+    });
   });
 
   // --- sendMessage ---
