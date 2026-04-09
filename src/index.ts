@@ -351,7 +351,7 @@ async function runAgent(
   const isMain = group.isMain === true;
 
   // TTL check: rotate DM sessions that have been alive too long
-  if (group.folder.startsWith('dms_') && sessions[group.folder]) {
+  if (group.folder.includes('dms_') && sessions[group.folder]) {
     const age = getSessionAge(group.folder);
     if (age !== null && age > DM_SESSION_TTL) {
       logger.info(
