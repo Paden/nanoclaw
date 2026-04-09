@@ -868,6 +868,14 @@ async function main(): Promise<void> {
         writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
       }
     },
+    onPoisonedMessage: (sourceGroup, text) => {
+      logger.warn(
+        { sourceGroup, snippet: text.slice(0, 160) },
+        'Purging session due to hallucinated-outage IPC message',
+      );
+      delete sessions[sourceGroup];
+      deleteSession(sourceGroup);
+    },
   });
   startSessionCleanup();
   queue.setProcessMessagesFn(processGroupMessages);

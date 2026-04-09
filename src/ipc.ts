@@ -41,7 +41,22 @@ export interface IpcDeps {
     registeredJids: Set<string>,
   ) => void;
   onTasksChanged: () => void;
+  onPoisonedMessage?: (sourceGroup: string, text: string) => void;
 }
+
+// Same patterns as index.ts hallucinated-outage guard — kept in sync manually.
+// If the agent sends a message via IPC that matches these, the session is
+// poisoned and should be purged so the next turn starts fresh.
+const POISONED_MESSAGE_PATTERNS = [
+  /no such tool available/i,
+  /tools? (are|is) offline/i,
+  /mcp.*(dropped|disconnected|reconnected)/i,
+  /sheets.*(offline|disconnected|flaky|dropped|down)/i,
+  /hard[- ]?refresh/i,
+  /restart the (bot|session)/i,
+  /api just disconnected/i,
+  /hasn.?t reconnected/i,
+];
 
 let ipcWatcherRunning = false;
 
@@ -193,6 +208,23 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   { chatJid: jid, sourceGroup, label: data.label },
                   'IPC message sent',
                 );
+                // Check for hallucinated-outage content sent via IPC
+                if (deps.onPoisonedMessage) {
+                  const hit = POISONED_MESSAGE_PATTERNS.find((re) =>
+                    re.test(data.text),
+                  );
+                  if (hit) {
+                    logger.warn(
+                      {
+                        sourceGroup,
+                        pattern: hit.source,
+                        snippet: data.text.slice(0, 160),
+                      },
+                      'Detected hallucinated-outage in IPC message — purging session',
+                    );
+                    deps.onPoisonedMessage(sourceGroup, data.text);
+                  }
+                }
               } else if (
                 data.type === 'edit_message' &&
                 jid &&
