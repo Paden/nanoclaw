@@ -3,7 +3,7 @@
 # Prune stale session artifacts (JSONLs, debug logs, todos, telemetry, group logs).
 # Safe to run while NanoClaw is live — active sessions are read from the DB.
 #
-# Usage:  ./scripts/cleanup-sessions.sh [--dry-run]
+# Usage:  ./scripts/cleanup-sessions.sh [--dry-run] [--purge-db]
 #
 # Retention:
 #   Session JSONLs + tool-results:  7 days  (active session always kept)
@@ -22,7 +22,13 @@ SESSIONS_DIR="$PROJECT_ROOT/data/sessions"
 GROUPS_DIR="$PROJECT_ROOT/groups"
 
 DRY_RUN=false
-[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
+PURGE_DB=false
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run)  DRY_RUN=true ;;
+    --purge-db) PURGE_DB=true ;;
+  esac
+done
 
 TOTAL_FREED=0
 
@@ -57,6 +63,19 @@ remove() {
 if [ ! -f "$STORE_DB" ]; then
   log "ERROR: database not found at $STORE_DB"
   exit 1
+fi
+
+# --purge-db: wipe all session IDs from the database.
+# Use after changing MCP server config or container tools so agents
+# start fresh instead of resuming with stale tool references.
+if $PURGE_DB; then
+  count=$(sqlite3 "$STORE_DB" "SELECT COUNT(*) FROM sessions;" 2>/dev/null || echo 0)
+  if $DRY_RUN; then
+    log "would purge $count session(s) from DB"
+  else
+    sqlite3 "$STORE_DB" "DELETE FROM sessions;"
+    log "purged $count session(s) from DB — restart NanoClaw to clear in-memory state"
+  fi
 fi
 
 ACTIVE_IDS=$(sqlite3 "$STORE_DB" "SELECT session_id FROM sessions;" 2>/dev/null || true)
