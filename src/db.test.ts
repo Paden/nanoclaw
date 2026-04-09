@@ -615,6 +615,32 @@ describe('message query LIMIT', () => {
     );
     expect(messages).toHaveLength(10);
   });
+
+  it('excludes reaction events from triggering agent wake-ups', () => {
+    const ts = '2024-06-01T00:00:00.000Z';
+    storeMessage({
+      id: 'rx-1',
+      chat_jid: 'group@g.us',
+      sender: 'user1',
+      sender_name: 'User',
+      content:
+        '[reaction:add] 💕 by User (your message) on message 123 on "hello"',
+      timestamp: '2024-06-01T00:01:00.000Z',
+      is_from_me: false,
+    });
+    storeMessage({
+      id: 'real-1',
+      chat_jid: 'group@g.us',
+      sender: 'user1',
+      sender_name: 'User',
+      content: '3oz formula',
+      timestamp: '2024-06-01T00:02:00.000Z',
+      is_from_me: false,
+    });
+    const { messages } = getNewMessages(['group@g.us'], ts, 'Andy');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe('3oz formula');
+  });
 });
 
 // --- RegisteredGroup isMain round-trip ---
