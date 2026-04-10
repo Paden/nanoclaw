@@ -68,83 +68,6 @@ export class DiscordChannel implements Channel {
       ],
     });
 
-    this.client.on(
-      'raw',
-      async (packet: {
-        t?: string;
-        d?: {
-          id?: string;
-          channel_id?: string;
-          guild_id?: string;
-          author?: {
-            id?: string;
-            username?: string;
-            global_name?: string;
-            bot?: boolean;
-          };
-          content?: string;
-          timestamp?: string;
-        };
-      }) => {
-        if (packet.t !== 'MESSAGE_CREATE') return;
-        const d = packet.d;
-        if (!d || d.guild_id || !d.channel_id || !d.author || d.author.bot)
-          return;
-        // DM — handle directly since discord.js MessageCreate doesn't fire for DMs reliably
-        const chatJid = `dc:${d.channel_id}`;
-        const senderName =
-          d.author.global_name || d.author.username || 'Unknown';
-        const sender = d.author.id || 'unknown';
-        const timestamp = d.timestamp || new Date().toISOString();
-        const msgId = d.id || `${Date.now()}`;
-        let content = d.content || '';
-
-        // Translate trigger if needed
-        if (this.client?.user) {
-          const botId = this.client.user.id;
-          if (
-            content.includes(`<@${botId}>`) ||
-            content.includes(`<@!${botId}>`)
-          ) {
-            content = content
-              .replace(new RegExp(`<@!?${botId}>`, 'g'), '')
-              .trim();
-          }
-          if (!TRIGGER_PATTERN.test(content)) {
-            content = `@${ASSISTANT_NAME} ${content}`;
-          }
-        }
-
-        this.opts.onChatMetadata(
-          chatJid,
-          timestamp,
-          senderName,
-          'discord',
-          false,
-        );
-
-        const group = this.opts.registeredGroups()[chatJid];
-        if (!group) {
-          logger.info(
-            { chatJid, sender: senderName },
-            'DM from unregistered channel',
-          );
-          return;
-        }
-
-        this.opts.onMessage(chatJid, {
-          id: msgId,
-          chat_jid: chatJid,
-          sender,
-          sender_name: senderName,
-          content,
-          timestamp,
-          is_from_me: false,
-        });
-        logger.info({ chatJid, sender: senderName }, 'Discord DM stored (raw)');
-      },
-    );
-
     this.client.on(Events.MessageCreate, async (message: Message) => {
       logger.info(
         {
@@ -200,6 +123,11 @@ export class DiscordChannel implements Channel {
             content = `@${ASSISTANT_NAME} ${content}`;
           }
         }
+      }
+
+      // DMs: auto-prepend trigger — in 1:1 chats every message is addressed to the bot
+      if (!message.guild && !TRIGGER_PATTERN.test(content)) {
+        content = `@${ASSISTANT_NAME} ${content}`;
       }
 
       // Handle attachments — store placeholders so the agent knows something was sent

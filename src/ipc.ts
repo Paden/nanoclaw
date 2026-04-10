@@ -381,6 +381,7 @@ export async function processTaskIpc(
     folder?: string;
     trigger?: string;
     requiresTrigger?: boolean;
+    isDm?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
   },
   sourceGroup: string, // Verified identity from IPC directory
@@ -675,8 +676,8 @@ export async function processTaskIpc(
           break;
         }
         // Defense in depth: agent cannot set isMain via IPC.
-        // Preserve isMain from the existing registration so IPC config
-        // updates (e.g. adding additionalMounts) don't strip the flag.
+        // Preserve isMain and isDm from the existing registration so IPC
+        // config updates (e.g. adding additionalMounts) don't strip flags.
         const existingGroup = registeredGroups[data.jid];
         deps.registerGroup(data.jid, {
           name: data.name,
@@ -686,6 +687,7 @@ export async function processTaskIpc(
           containerConfig: data.containerConfig,
           requiresTrigger: data.requiresTrigger,
           isMain: existingGroup?.isMain,
+          isDm: data.isDm ?? existingGroup?.isDm,
         });
       } else {
         logger.warn(

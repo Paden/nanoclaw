@@ -1041,6 +1041,121 @@ describe('DiscordChannel', () => {
     });
   });
 
+  // --- DM handling (unified path) ---
+
+  describe('DM handling', () => {
+    function dmOpts(overrides?: Partial<DiscordChannelOpts>) {
+      return createTestOpts({
+        registeredGroups: vi.fn(() => ({
+          'dc:9999999999999999': {
+            name: 'DM: Alice',
+            folder: 'discord_dms_alice',
+            trigger: '@Andy',
+            added_at: '2024-01-01T00:00:00.000Z',
+            isDm: true,
+          },
+        })),
+        ...overrides,
+      });
+    }
+
+    function dmMessage(overrides?: Parameters<typeof createMessage>[0]) {
+      return createMessage({
+        channelId: '9999999999999999',
+        guildName: undefined,
+        authorDisplayName: 'Alice',
+        ...overrides,
+      });
+    }
+
+    it('auto-prepends trigger for DM messages', async () => {
+      const opts = dmOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMessage(dmMessage({ content: 'hello' }));
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'dc:9999999999999999',
+        expect.objectContaining({ content: '@Andy hello' }),
+      );
+    });
+
+    it('does not double-prepend trigger for DMs', async () => {
+      const opts = dmOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMessage(dmMessage({ content: '@Andy hello' }));
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'dc:9999999999999999',
+        expect.objectContaining({ content: '@Andy hello' }),
+      );
+    });
+
+    it('strips bot mention and prepends trigger in DMs', async () => {
+      const opts = dmOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMessage(
+        dmMessage({ content: '<@999888777> check this', mentionsBotId: true }),
+      );
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'dc:9999999999999999',
+        expect.objectContaining({ content: '@Andy check this' }),
+      );
+    });
+
+    it('includes attachments in DM messages', async () => {
+      const opts = dmOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      const attachments = new Map([
+        ['1', { name: 'photo.png', contentType: 'image/png' }],
+      ]);
+      await triggerMessage(dmMessage({ content: 'look', attachments }));
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'dc:9999999999999999',
+        expect.objectContaining({
+          content: expect.stringContaining('[Image: photo.png]'),
+        }),
+      );
+    });
+
+    it('includes reply context in DM messages', async () => {
+      const opts = dmOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      await triggerMessage(
+        dmMessage({
+          content: 'yes exactly',
+          reference: { messageId: 'msg_ref_123' },
+        }),
+      );
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'dc:9999999999999999',
+        expect.objectContaining({
+          content: expect.stringContaining('[Reply to Bob'),
+        }),
+      );
+    });
+
+    it('does not register a raw packet handler', async () => {
+      const opts = dmOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      expect(currentClient().eventHandlers.has('raw')).toBe(false);
+    });
+  });
+
   // --- Channel properties ---
 
   describe('channel properties', () => {

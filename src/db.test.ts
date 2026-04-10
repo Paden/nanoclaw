@@ -711,3 +711,37 @@ describe('registered group isMain', () => {
     expect(group.isMain).toBeUndefined();
   });
 });
+
+// --- RegisteredGroup isDm round-trip ---
+
+describe('registered group isDm', () => {
+  it('persists isDm=true through set/get round-trip', () => {
+    setRegisteredGroup('dc:9999999999999999', {
+      name: 'DM: Alice',
+      folder: 'discord_dms_alice',
+      trigger: '@Andy',
+      added_at: '2024-01-01T00:00:00.000Z',
+      isDm: true,
+    });
+
+    const groups = getAllRegisteredGroups();
+    const group = groups['dc:9999999999999999'];
+    expect(group).toBeDefined();
+    expect(group.isDm).toBe(true);
+    expect(group.folder).toBe('discord_dms_alice');
+  });
+
+  it('omits isDm for non-DM groups', () => {
+    setRegisteredGroup('dc:1111111111111111', {
+      name: 'Server #general',
+      folder: 'discord_general',
+      trigger: '@Andy',
+      added_at: '2024-01-01T00:00:00.000Z',
+    });
+
+    const groups = getAllRegisteredGroups();
+    const group = groups['dc:1111111111111111'];
+    expect(group).toBeDefined();
+    expect(group.isDm).toBeUndefined();
+  });
+});
