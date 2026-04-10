@@ -380,6 +380,25 @@ export class DiscordChannel implements Channel {
           logger.error({ err }, 'Failed to register Discord slash commands');
         }
 
+        // Pre-cache DM channels so MessageCreate fires reliably.
+        // discord.js doesn't auto-cache DM channels on connect, so
+        // without this, DM events silently fail until the channel
+        // is fetched at least once.
+        const groups = this.opts.registeredGroups();
+        for (const [jid, group] of Object.entries(groups)) {
+          if (!group.isDm) continue;
+          const channelId = jid.replace('dc:', '');
+          try {
+            await readyClient.channels.fetch(channelId);
+            logger.info({ channelId }, 'Pre-cached DM channel');
+          } catch (err) {
+            logger.warn(
+              { channelId, err: (err as Error).message },
+              'Failed to pre-cache DM channel',
+            );
+          }
+        }
+
         resolve();
       });
 

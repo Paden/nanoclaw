@@ -98,11 +98,15 @@ vi.mock('discord.js', () => {
 
     async login(_token: string) {
       this._ready = true;
-      // Fire the ready event — handler expects a readyClient with both
-      // `user` and `application.commands.set()` (for slash command registration)
+      // Fire the ready event — handler expects a readyClient with
+      // `user`, `application.commands.set()`, and `channels.fetch()`
       const readyHandlers = this.eventHandlers.get('ready') || [];
       for (const h of readyHandlers) {
-        await h({ user: this.user, application: this.application });
+        await h({
+          user: this.user,
+          application: this.application,
+          channels: this.channels,
+        });
       }
     }
 

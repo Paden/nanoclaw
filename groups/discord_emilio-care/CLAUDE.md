@@ -10,6 +10,8 @@ Sheet IDs, tabs, and schemas in `/workspace/global/sheets.md` — read it. This 
 
 Built by `node /workspace/group/build_status_card.mjs` (one call — reads all tabs in parallel, computes wind-down/targets/totals/streak). Then **always** `send_message({label: "status_card", pin: true, upsert: true, text: <output>})`. Run script + upsert after every sheet write.
 
+**Before answering any question about totals, history, or sleep hours**, run `build_status_card.mjs` first to get fresh sheet data. Your session may have stale numbers — the sheet is the source of truth, not your memory of previous reads.
+
 ## Pump motivation
 
 Read `/workspace/group/pump_rules.md` on first pump event — covers reply format, Emilio voice pool, Nyx XP, hydration nudge, and milestones.

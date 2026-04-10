@@ -10,7 +10,7 @@ const CONTAINER_SKILLS = join(process.cwd(), 'container', 'skills');
 // Token budgets — raise these deliberately, not accidentally
 // CLAUDE.md = identity + core rules + lazy-load pointers. Everything else → reference files or scripts.
 const BUDGETS = {
-  globalClaudeMd: 750,
+  globalClaudeMd: 850,
   groupClaudeMd: 1_000,
   containerSkill: 800,
 };
