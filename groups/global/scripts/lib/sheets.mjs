@@ -9,11 +9,11 @@
 
 import fs from 'fs';
 
-const ADC_PATH = process.env.GOOGLE_APPLICATION_CREDENTIALS
+const defaultAdcPath = () => process.env.GOOGLE_APPLICATION_CREDENTIALS
   || '/home/node/.config/gcloud/application_default_credentials.json';
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
-export async function getAccessToken({ fetchFn = fetch, adcPath = ADC_PATH } = {}) {
+export async function getAccessToken({ fetchFn = fetch, adcPath = defaultAdcPath() } = {}) {
   const creds = JSON.parse(fs.readFileSync(adcPath, 'utf8'));
   const resp = await fetchFn('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -46,17 +46,20 @@ async function request(method, url, body, token, fetchFn) {
 }
 
 export async function readRange(sheetId, range, { token, fetchFn = fetch } = {}) {
+  if (!token) token = await getAccessToken({ fetchFn });
   const url = `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}`;
   const data = await request('GET', url, undefined, token, fetchFn);
   return data.values || [];
 }
 
 export async function appendRows(sheetId, range, values, { token, fetchFn = fetch } = {}) {
+  if (!token) token = await getAccessToken({ fetchFn });
   const url = `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`;
   return request('POST', url, { values }, token, fetchFn);
 }
 
 export async function updateRange(sheetId, range, values, { token, fetchFn = fetch } = {}) {
+  if (!token) token = await getAccessToken({ fetchFn });
   const url = `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
   return request('PUT', url, { values }, token, fetchFn);
 }
