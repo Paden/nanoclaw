@@ -43,7 +43,7 @@ Use `sender: "Voss"` / `"Nyx"` / `"Zima"` in `send_message` to speak as a pet (a
 
 ## Ollama offloading
 
-Use `ollama_generate` (model: **gemma4**) for long replies, summaries, and creative content. Keep tool orchestration and short confirmations for yourself. Include channel context in the system prompt. Send the result as yours.
+Use `ollama_generate` (model: **qwen3:8b**) for long replies, summaries, and creative content. Keep tool orchestration and short confirmations for yourself. Include channel context in the system prompt.
 
 ## Reference files — read on demand, not upfront
 

@@ -14,8 +14,8 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
-  LITELLM_URL,
   OLLAMA_ADMIN_TOOLS,
+  OLLAMA_API_KEY,
   ONECLI_URL,
   TIMEZONE,
 } from './config.js';
@@ -299,23 +299,57 @@ async function buildContainerArgs(
     args.push('-e', 'OLLAMA_ADMIN_TOOLS=true');
   }
 
-  // Local model routing: if the model is NOT a Claude model and LiteLLM is
-  // configured, bypass OneCLI and point the SDK directly at the LiteLLM proxy
-  // which translates Anthropic API format to Ollama. This makes the
-  // orchestrator free for groups running local models.
-  const isLocalModel = model && !model.startsWith('claude-') && LITELLM_URL;
+  // Local model routing: if the model is NOT a Claude model, bypass OneCLI
+  // and point the SDK directly at Ollama's native Anthropic Messages API.
+  // This makes the orchestrator free (zero API cost) for local models.
+  const isLocalModel = model && !model.startsWith('claude-');
 
   if (isLocalModel) {
-    // LiteLLM accepts Anthropic Messages API format — point the SDK at it
-    const litellmHost = LITELLM_URL.replace(
-      'localhost',
-      'host.docker.internal',
-    ).replace('127.0.0.1', 'host.docker.internal');
-    args.push('-e', `ANTHROPIC_BASE_URL=${litellmHost}`);
-    args.push('-e', 'ANTHROPIC_API_KEY=sk-litellm-local');
+    // Ollama natively supports the Anthropic Messages API at /v1/messages.
+    // From inside Docker, reach the host via host.docker.internal.
+    args.push('-e', 'ANTHROPIC_BASE_URL=http://host.docker.internal:11434');
+    args.push('-e', `ANTHROPIC_API_KEY=${OLLAMA_API_KEY}`);
+
+    // Pre-warm Ollama: send a tiny request to load the model into GPU memory
+    // before the SDK hits it. The SDK's first request can wedge Ollama if the
+    // model is still loading — this ensures it's ready.
+    try {
+      const warmup = await fetch('http://127.0.0.1:11434/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': OLLAMA_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'warmup' }],
+        }),
+        signal: AbortSignal.timeout(120000),
+      });
+      if (warmup.ok) {
+        logger.info({ containerName, model }, 'Ollama model pre-warmed');
+      } else {
+        logger.warn(
+          { containerName, model, status: warmup.status },
+          'Ollama warmup returned non-OK',
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        {
+          containerName,
+          model,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        'Ollama warmup failed — container may hang on cold start',
+      );
+    }
+
     logger.info(
-      { containerName, model, litellmUrl: litellmHost },
-      'Routing through LiteLLM (local model)',
+      { containerName, model },
+      'Routing to Ollama (local model, zero API cost)',
     );
   } else {
     // OneCLI gateway handles credential injection — containers never see real secrets.

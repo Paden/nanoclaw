@@ -238,27 +238,13 @@ server.tool(
 
 server.tool(
   'schedule_task',
-  `Schedule a recurring or one-time task. The task will run as a full agent with access to all tools. Returns the task ID for future reference. To modify an existing task, use update_task instead.
+  `Schedule a recurring or one-time task. Returns task ID. Use update_task to modify.
 
-CONTEXT MODE - Choose based on task type:
-\u2022 "group": Task runs in the group's conversation context, with access to chat history. Use for tasks that need context about ongoing discussions, user preferences, or recent interactions.
-\u2022 "isolated": Task runs in a fresh session with no conversation history. Use for independent tasks that don't need prior context. When using isolated mode, include all necessary context in the prompt itself.
+context_mode: "group" = with chat history, "isolated" = fresh session (include all context in prompt).
 
-If unsure which mode to use, you can ask the user. Examples:
-- "Remind me about our discussion" \u2192 group (needs conversation context)
-- "Check the weather every morning" \u2192 isolated (self-contained task)
-- "Follow up on my request" \u2192 group (needs to know what was requested)
-- "Generate a daily report" \u2192 isolated (just needs instructions in prompt)
+schedule_value (LOCAL timezone): cron="0 9 * * *", interval="300000" (ms), once="2026-02-01T15:30:00" (no Z suffix).
 
-MESSAGING BEHAVIOR - The task agent's output is sent to the user or group. It can also use send_message for immediate delivery, or wrap output in <internal> tags to suppress it. Include guidance in the prompt about whether the agent should:
-\u2022 Always send a message (e.g., reminders, daily briefings)
-\u2022 Only send a message when there's something to report (e.g., "notify me if...")
-\u2022 Never send a message (background maintenance tasks)
-
-SCHEDULE VALUE FORMAT (all times are LOCAL timezone):
-\u2022 cron: Standard cron expression (e.g., "*/5 * * * *" for every 5 minutes, "0 9 * * *" for daily at 9am LOCAL time)
-\u2022 interval: Milliseconds between runs (e.g., "300000" for 5 minutes, "3600000" for 1 hour)
-\u2022 once: Local time WITHOUT "Z" suffix (e.g., "2026-02-01T15:30:00"). Do NOT use UTC/Z suffix.`,
+Task output is sent to the group. Use send_message for immediate delivery or <internal> tags to suppress.`,
   {
     prompt: z
       .string()
@@ -611,66 +597,54 @@ server.tool(
   },
 );
 
-server.tool(
-  'register_group',
-  `Register a new chat/group so the agent can respond to messages there. Main group only.
+// register_group is only relevant for the main admin group — skip it entirely
+// for other groups/DMs to save ~400 tokens of tool schema.
+if (isMain) {
+  server.tool(
+    'register_group',
+    `Register a new chat/group. Use available_groups.json for JIDs. Folder must be channel-prefixed: "{channel}_{name}" (e.g., "discord_general"). Lowercase with hyphens.`,
+    {
+      jid: z
+        .string()
+        .describe(
+          'Chat JID (e.g., "dc:1234567890123456", "tg:-1001234567890")',
+        ),
+      name: z.string().describe('Display name for the group'),
+      folder: z
+        .string()
+        .describe('Channel-prefixed folder name (e.g., "discord_general")'),
+      trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
+      requiresTrigger: z
+        .boolean()
+        .optional()
+        .describe(
+          'If true, only respond when triggered. Default: false (respond to all).',
+        ),
+    },
+    async (args) => {
+      const data = {
+        type: 'register_group',
+        jid: args.jid,
+        name: args.name,
+        folder: args.folder,
+        trigger: args.trigger,
+        requiresTrigger: args.requiresTrigger ?? false,
+        timestamp: new Date().toISOString(),
+      };
 
-Use available_groups.json to find the JID for a group. The folder name must be channel-prefixed: "{channel}_{group-name}" (e.g., "whatsapp_family-chat", "telegram_dev-team", "discord_general"). Use lowercase with hyphens for the group name part.`,
-  {
-    jid: z
-      .string()
-      .describe(
-        'The chat JID (e.g., "120363336345536173@g.us", "tg:-1001234567890", "dc:1234567890123456")',
-      ),
-    name: z.string().describe('Display name for the group'),
-    folder: z
-      .string()
-      .describe(
-        'Channel-prefixed folder name (e.g., "whatsapp_family-chat", "telegram_dev-team")',
-      ),
-    trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
-    requiresTrigger: z
-      .boolean()
-      .optional()
-      .describe(
-        'Whether messages must start with the trigger word. Default: false (respond to all messages). Set to true for busy groups with many participants where you only want the agent to respond when explicitly mentioned.',
-      ),
-  },
-  async (args) => {
-    if (!isMain) {
+      writeIpcFile(TASKS_DIR, data);
+
       return {
         content: [
           {
             type: 'text' as const,
-            text: 'Only the main group can register new groups.',
+            text: `Group "${args.name}" registered. It will start receiving messages immediately.`,
           },
         ],
-        isError: true,
       };
-    }
-
-    const data = {
-      type: 'register_group',
-      jid: args.jid,
-      name: args.name,
-      folder: args.folder,
-      trigger: args.trigger,
-      requiresTrigger: args.requiresTrigger ?? false,
-      timestamp: new Date().toISOString(),
-    };
-
-    writeIpcFile(TASKS_DIR, data);
-
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `Group "${args.name}" registered. It will start receiving messages immediately.`,
-        },
-      ],
-    };
-  },
-);
+    },
+  );
+}
 
 // Start the stdio transport
 const transport = new StdioServerTransport();
