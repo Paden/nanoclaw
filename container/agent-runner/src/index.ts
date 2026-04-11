@@ -539,6 +539,7 @@ async function runQuery(
     'mcp__nanoclaw__*',
     'mcp__airtable__*',
     'mcp__google-calendar__*',
+    'mcp__ollama__*',
   ];
 
   const mcpServers: Record<string, unknown> = {
@@ -577,6 +578,10 @@ async function runQuery(
           },
         }
       : {}),
+    ollama: {
+      command: 'node',
+      args: [path.join(path.dirname(mcpServerPath), 'ollama-mcp-stdio.js')],
+    },
   };
 
   // Startup assertion: every registered MCP server MUST have a matching
