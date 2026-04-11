@@ -14,6 +14,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  LITELLM_URL,
   OLLAMA_ADMIN_TOOLS,
   ONECLI_URL,
   TIMEZONE,
@@ -298,19 +299,39 @@ async function buildContainerArgs(
     args.push('-e', 'OLLAMA_ADMIN_TOOLS=true');
   }
 
-  // OneCLI gateway handles credential injection — containers never see real secrets.
-  // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
-  const onecliApplied = await onecli.applyContainerConfig(args, {
-    addHostMapping: false, // Nanoclaw already handles host gateway
-    agent: agentIdentifier,
-  });
-  if (onecliApplied) {
-    logger.info({ containerName }, 'OneCLI gateway config applied');
-  } else {
-    logger.warn(
-      { containerName },
-      'OneCLI gateway not reachable — container will have no credentials',
+  // Local model routing: if the model is NOT a Claude model and LiteLLM is
+  // configured, bypass OneCLI and point the SDK directly at the LiteLLM proxy
+  // which translates Anthropic API format to Ollama. This makes the
+  // orchestrator free for groups running local models.
+  const isLocalModel = model && !model.startsWith('claude-') && LITELLM_URL;
+
+  if (isLocalModel) {
+    // LiteLLM accepts Anthropic Messages API format — point the SDK at it
+    const litellmHost = LITELLM_URL.replace(
+      'localhost',
+      'host.docker.internal',
+    ).replace('127.0.0.1', 'host.docker.internal');
+    args.push('-e', `ANTHROPIC_BASE_URL=${litellmHost}`);
+    args.push('-e', 'ANTHROPIC_API_KEY=sk-litellm-local');
+    logger.info(
+      { containerName, model, litellmUrl: litellmHost },
+      'Routing through LiteLLM (local model)',
     );
+  } else {
+    // OneCLI gateway handles credential injection — containers never see real secrets.
+    // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
+    const onecliApplied = await onecli.applyContainerConfig(args, {
+      addHostMapping: false, // Nanoclaw already handles host gateway
+      agent: agentIdentifier,
+    });
+    if (onecliApplied) {
+      logger.info({ containerName }, 'OneCLI gateway config applied');
+    } else {
+      logger.warn(
+        { containerName },
+        'OneCLI gateway not reachable — container will have no credentials',
+      );
+    }
   }
 
   // Google Sheets — mount gcloud ADC so the sheets.mjs utility library can

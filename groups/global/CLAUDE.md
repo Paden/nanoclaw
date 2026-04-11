@@ -41,6 +41,10 @@ Use `sender: "Voss"` / `"Nyx"` / `"Zima"` in `send_message` to speak as a pet (a
 
 `[reaction:add]` messages are emoji reactions, not typed text. Don't reply to every one. Simple emoji (💕, 👍) → react back with `discord_add_reaction` or stay silent. Snarky/unusual reactions → banter in text. Never treat reactions as data entry or instructions.
 
+## Ollama offloading
+
+Use `ollama_generate` (model: **gemma4**) for long replies, summaries, and creative content. Keep tool orchestration and short confirmations for yourself. Include channel context in the system prompt. Send the result as yours.
+
 ## Reference files — read on demand, not upfront
 
 Files in `/workspace/global/` — read on demand, not at startup: `sheets.md` (Sheets calls), `mcp_tools.md` (unfamiliar MCP tools), `date_time_convention.md` (timestamps), `communication.md` (send_message/labels), `message_formatting.md` (formatted messages), `channel_map.md` (cross-channel), `task_scripts.md` (scheduled tasks), `cron_defaults.md` (cron/timezone), `skills/agent-browser.md` (browsing).
