@@ -13,6 +13,7 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `src/index.ts` | Orchestrator: state, message loop, agent invocation |
 | `src/channels/registry.ts` | Channel registry (self-registration at startup) |
 | `src/ipc.ts` | IPC watcher and task processing |
+| `data/ipc/<group>/` | File-based queue: agents drop JSON, host watches and acts (send_message, schedule_task, etc.) |
 | `src/router.ts` | Message formatting and outbound routing |
 | `src/config.ts` | Trigger pattern, paths, intervals |
 | `src/container-runner.ts` | Spawns agent containers with mounts |
@@ -52,10 +53,14 @@ Before creating a PR, adding a skill, or preparing any contribution, you MUST re
 
 Run commands directly—don't tell the user to run them.
 
+Pre-commit hooks (husky + lint-staged) run `prettier --write` on staged files and the full test suite. Commits take a few seconds and may re-stage prettier-formatted files — this is normal, not a failure.
+
 ```bash
 npm run dev          # Run with hot reload
 npm run build        # Compile TypeScript
+npm test             # Run vitest suite (also runs on pre-commit)
 ./container/build.sh # Rebuild agent container
+./scripts/cleanup-sessions.sh --purge-db  # Purge agent sessions (required after container tool/MCP changes)
 ```
 
 Service management:
