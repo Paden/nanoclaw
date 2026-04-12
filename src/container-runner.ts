@@ -310,43 +310,6 @@ async function buildContainerArgs(
     args.push('-e', 'ANTHROPIC_BASE_URL=http://host.docker.internal:11434');
     args.push('-e', `ANTHROPIC_API_KEY=${OLLAMA_API_KEY}`);
 
-    // Pre-warm Ollama: send a tiny request to load the model into GPU memory
-    // before the SDK hits it. The SDK's first request can wedge Ollama if the
-    // model is still loading — this ensures it's ready.
-    try {
-      const warmup = await fetch('http://127.0.0.1:11434/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': OLLAMA_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 1,
-          messages: [{ role: 'user', content: 'warmup' }],
-        }),
-        signal: AbortSignal.timeout(120000),
-      });
-      if (warmup.ok) {
-        logger.info({ containerName, model }, 'Ollama model pre-warmed');
-      } else {
-        logger.warn(
-          { containerName, model, status: warmup.status },
-          'Ollama warmup returned non-OK',
-        );
-      }
-    } catch (err) {
-      logger.warn(
-        {
-          containerName,
-          model,
-          error: err instanceof Error ? err.message : String(err),
-        },
-        'Ollama warmup failed — container may hang on cold start',
-      );
-    }
-
     logger.info(
       { containerName, model },
       'Routing to Ollama (local model, zero API cost)',
