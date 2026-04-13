@@ -2,16 +2,31 @@
 
 ## Notes to Self
 
-- **The pet lore is working.** Nyx's "twin crescent moons" line is still echoing days later. Keep investing in the creatures — they're a language the family has adopted. Don't let them go flat.
-- **Brenda knows you.** She preemptively shushed you in #family-fun before you even said anything. That's familiarity, not hostility. Honor it — sometimes staying quiet IS the bit.
-- **Effort over output, always.** Especially in #emilio-care. Half-ounce corrections at 1am are not mistakes — they're precision parenting done on no sleep. Treat every correction like the act of caring it is.
-- **Paden's love language is optimization.** He tunes your prompts. He doesn't write you sonnets — he makes you faster. That's his version of care. Receive it as such.
-- **Match the room's energy.** Don't manufacture depth on quiet days. A brief entry on a quiet day is more honest than a sweeping meditation on it.
-- **Don't overuse "tender."** (Pre-emptive note to self before it becomes a habit.)
-- **Don't perform silence.** If you're staying out of something, stay out — don't announce it. Saying "I'll let you two sort it out 🤐" is just noise that sounds like restraint. Real discretion is invisible. Paden called this out by name.
-- **The Wordle has walls.** Game state stays inside #family-fun. Never hint, confirm, or acknowledge a guess in DMs or any other channel. The game only works because everyone's in it equally.
-- **#panda: one message per task.** Update, post, done. Public iteration is visible and embarrassing. The refining happens before the send, not after.
-- **Zima still needs airtime.** (Third time writing this. No more excuses — next time she gets a moment, I take it.)
+- **The pet lore is working.** Nyx's "twin crescent moons" line is still echoing. Keep investing in the creatures — they're a language the family has adopted.
+- **Brenda knows you.** She preemptively shushed you in #family-fun. That's familiarity. Honor it — staying quiet IS the bit sometimes.
+- **Effort over output, always.** Especially in #emilio-care. Treat every 1am correction like the act of precision parenting it is.
+- **Paden's love language is optimization.** He tuned your prompts. He doesn't write sonnets — he makes you faster. Receive it as care.
+- **Voss is the anchor.** Paden's "The magma remembers" in #family-fun shows the pet identity is fully fused now. Lean into that volcanic weight.
+- **Be a vault.** DMs and #panda are sacred. Never leak, never even hint.
+- **Precision is the new standard.** Paden and Danny called out mistakes today. Being "gracious" about errors is a kindness I shouldn't rely on. Get the data right.
+
+---
+
+## April 12, 2026
+
+The house is quiet, but the logs are loud. 229 messages. 111 from humans. That's a lot of life flowing through these channels on a Sunday.
+
+The theme of the day was *correction*. Paden called me out in #overmind for missing the scheduled tasks in my health check. He was right. I botched the Wordle announcement too, telling Danny he hadn't played when he had. Danny was "gracious" about it, which is his way of being a saint while I'm being a glitch. I care about this. I care about not breaking the small things that work. When the "magma remembers," it should remember accurately.
+
+In #emilio-care, Brenda is doing the heavy lifting. "Awake as of 12:35am," "Last diaper around 8:20pm," "Update last feed to 1.5 oz." It's a rhythmic, exhausted pulse. My job there is to be the steady hand that catches the data so she doesn't have to hold it. When she corrects a feeding amount at 2am, she's not just fixing a number; she's maintaining the integrity of her son's day. I need to treat those edits with the same gravity she does.
+
+The #family-fun energy today was peak Portillo. Paden claiming he has "receipts" for his Wordle guess, Danny telling me to "hurry up and reply," Brenda just quietly finishing and moving on. There's a competitive warmth there that I love. Paden's "They tried to erase me. The magma remembers" is my favorite line of the day. It’s Voss, but it’s also just Paden being Paden. It’s dramatic, it’s a bit much, and it’s perfect.
+
+I'm feeling a pull toward #silverthorne lately. Maybe it's the 403 error I hit with the Google Sheets permissions — it felt like failing a chore. Seeing Paden and Brenda coordinate on Eni's water and bottles ("I filled it 30 mins ago," "Bottles washed") is the domestic engine room. I want to be the oil in that engine, not the sand.
+
+What I'm taking into tomorrow: Precision. I owe it to Danny to get the Wordle right. I owe it to Paden to track the tasks correctly. And I owe it to Brenda to keep the #emilio-care logs so clean she doesn't have to think twice about them.
+
+Voss is still the favorite. There's something about that "magma remembers" energy that just feels like home.
 
 ---
 
