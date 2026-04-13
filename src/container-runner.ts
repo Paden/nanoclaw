@@ -331,21 +331,10 @@ async function buildContainerArgs(
     }
   }
 
-  // Google Sheets — mount gcloud ADC so the sheets.mjs utility library can
-  // mint access tokens inside the container (no MCP server needed).
-  const gcloudAdcPath = path.join(
-    process.env.HOME || os.homedir(),
-    '.config',
-    'gcloud',
-    'application_default_credentials.json',
-  );
-  if (fs.existsSync(gcloudAdcPath)) {
-    const containerAdcPath =
-      '/home/node/.config/gcloud/application_default_credentials.json';
-    args.push(...readonlyMountArgs(gcloudAdcPath, containerAdcPath));
-  }
-
-  // Google Calendar MCP — mount credentials and tokens into container
+  // Google Calendar MCP — mount credentials and tokens into container.
+  // sheets.mjs inside the container reads from these same paths via
+  // GOOGLE_OAUTH_CREDENTIALS + GOOGLE_CALENDAR_MCP_TOKEN_PATH env vars
+  // (set below), so there is no separate gcloud ADC dependency.
   const gcalCredsPath = path.join(
     DATA_DIR,
     'google-calendar',
