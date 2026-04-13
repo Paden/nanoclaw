@@ -539,6 +539,7 @@ async function runQuery(
     'mcp__nanoclaw__*',
     'mcp__airtable__*',
     'mcp__google-calendar__*',
+    'mcp__google-sheets__*',
     'mcp__ollama__*',
   ];
 
@@ -569,6 +570,20 @@ async function runQuery(
           'google-calendar': {
             command: 'google-calendar-mcp',
             args: [],
+            env: {
+              ...networkEnv(),
+              GOOGLE_OAUTH_CREDENTIALS: process.env.GOOGLE_OAUTH_CREDENTIALS,
+              GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+                process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH || '',
+            },
+          },
+        }
+      : {}),
+    ...(process.env.GOOGLE_OAUTH_CREDENTIALS
+      ? {
+          'google-sheets': {
+            command: 'node',
+            args: [path.join(path.dirname(mcpServerPath), 'sheets-mcp-stdio.js')],
             env: {
               ...networkEnv(),
               GOOGLE_OAUTH_CREDENTIALS: process.env.GOOGLE_OAUTH_CREDENTIALS,
