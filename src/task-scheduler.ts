@@ -92,14 +92,10 @@ export async function runGateScript(
 ): Promise<GateResult | null> {
   const groupDir = resolveGroupFolderPath(groupFolder);
   const globalDir = path.resolve(GROUPS_DIR, 'global');
-  const hostAdcPath = path.join(
-    process.env.HOME || os.homedir(),
-    '.config',
-    'gcloud',
-    'application_default_credentials.json',
-  );
 
-  // Google Calendar OAuth paths (host equivalents of container mounts)
+  // Google Calendar OAuth paths (host equivalents of container mounts).
+  // sheets.mjs reads from the same files via GOOGLE_OAUTH_CREDENTIALS +
+  // GOOGLE_CALENDAR_MCP_TOKEN_PATH env vars (set in execFile env below).
   const gcalCredsPath = path.join(
     DATA_DIR,
     'google-calendar',
@@ -120,11 +116,6 @@ export async function runGateScript(
     .replaceAll('/workspace/project', projectRoot)
     .replaceAll('/workspace/group', groupDir)
     .replaceAll('/workspace/global', globalDir)
-    .replaceAll(
-      '/home/node/.config/gcloud/application_default_credentials.json',
-      hostAdcPath,
-    )
-    .replaceAll('/home/node/.config/gcloud', path.dirname(hostAdcPath))
     .replaceAll(
       '/home/node/.config/google-calendar-mcp/gcp-oauth.keys.json',
       gcalCredsPath,
@@ -148,7 +139,8 @@ export async function runGateScript(
           env: {
             ...process.env,
             TZ: TIMEZONE,
-            GOOGLE_APPLICATION_CREDENTIALS: hostAdcPath,
+            GOOGLE_OAUTH_CREDENTIALS: gcalCredsPath,
+            GOOGLE_CALENDAR_MCP_TOKEN_PATH: gcalTokenPath,
           },
           cwd: groupDir,
         },
