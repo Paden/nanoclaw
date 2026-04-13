@@ -280,6 +280,14 @@ async function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
+  // Safety cap on per-query turns (tool-call cycles). Prevents runaway loops
+  // from burning tokens. Forwards host env if set, else defaults to 40 —
+  // generous for status card + multi-sheet writes, catches obvious runaways.
+  args.push(
+    '-e',
+    `NANOCLAW_MAX_TURNS=${process.env.NANOCLAW_MAX_TURNS || '40'}`,
+  );
+
   // Model selection: per-group `.model` file overrides global ANTHROPIC_MODEL.
   // Lets us run sonnet globally but pin opus for chat-heavy channels like family-fun.
   let model =

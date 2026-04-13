@@ -612,6 +612,12 @@ async function runQuery(
     }
   }
 
+  // Cap per-query turns as a runaway-loop guardrail. Each tool call is one
+  // turn; 40 is generous for status card + multi-sheet flows but catches
+  // obvious spirals. Overridable via NANOCLAW_MAX_TURNS on the host env.
+  const maxTurnsEnv = parseInt(process.env.NANOCLAW_MAX_TURNS || '40', 10);
+  const maxTurns = Number.isFinite(maxTurnsEnv) && maxTurnsEnv > 0 ? maxTurnsEnv : 40;
+
   for await (const message of query({
     prompt: stream,
     options: {
@@ -627,6 +633,7 @@ async function runQuery(
           }
         : undefined,
       allowedTools,
+      maxTurns,
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
