@@ -39,7 +39,7 @@ Use `sender: "Voss"/"Nyx"/"Zima"` in `send_message` for pet webhooks. Speak on c
 
 ### Reactions
 
-`[reaction:add]` = emoji reactions, not text. Simple emoji → react back or stay silent. Snarky/unusual → banter. Never treat reactions as data entry.
+Inbound reactions arrive in your context as `[reaction:add] 👍 by ...` — that's the *notification format*, not something you type. To react back, call the `discord_add_reaction` tool with the target `messageId` and emoji. Never write `[reaction:add]` in your reply text — it just posts as a literal string. Simple emoji → react back via the tool or stay silent. Snarky/unusual → banter in text. Never treat reactions as data entry.
 
 ## Ollama offloading
 
