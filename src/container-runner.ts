@@ -315,6 +315,15 @@ async function buildContainerArgs(
   if (isLocalModel) {
     // Ollama natively supports the Anthropic Messages API at /v1/messages.
     // From inside Docker, reach the host via host.docker.internal.
+    // Suppress per-request telemetry/billing headers from the SDK. Ollama's
+    // KV cache uses prefix-match (llama.cpp lineage), so a mutating header
+    // at the start of every request flushes the cache and forces full
+    // re-prefill of the system prompt every turn.
+    args.push('-e', 'CLAUDE_CODE_ATTRIBUTION_HEADER=0');
+    args.push('-e', 'DISABLE_TELEMETRY=1');
+    args.push('-e', 'DISABLE_ERROR_REPORTING=1');
+    args.push('-e', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1');
+
     args.push('-e', 'ANTHROPIC_BASE_URL=http://host.docker.internal:11434');
     args.push('-e', `ANTHROPIC_API_KEY=${OLLAMA_API_KEY}`);
 
