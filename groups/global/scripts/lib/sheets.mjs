@@ -1,27 +1,41 @@
 // Minimal Google Sheets v4 client for in-container scripts.
 //
-// Token is minted from ADC at runtime. All functions accept an optional
-// `token` parameter so tests can inject a fake; the lower-level `request`
-// helper accepts an optional `fetchFn` for the same reason.
+// Token is minted from calendar-mcp OAuth credentials at runtime. All
+// functions accept an optional `token` parameter so tests can inject a fake;
+// the lower-level `request` helper accepts an optional `fetchFn` for the
+// same reason.
 //
 // Used by group scripts (compute-tiers, score-guess, etc) to keep
 // auth + URL construction out of the per-script code.
 
 import fs from 'fs';
 
-const defaultAdcPath = () => process.env.GOOGLE_APPLICATION_CREDENTIALS
-  || '/home/node/.config/gcloud/application_default_credentials.json';
+const defaultOauthKeysPath = () =>
+  process.env.GOOGLE_OAUTH_CREDENTIALS ||
+  '/home/node/.config/google-calendar-mcp/gcp-oauth.keys.json';
+
+const defaultTokensPath = () =>
+  process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
+  '/home/node/.config/google-calendar-mcp/tokens.json';
+
 const SHEETS_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
-export async function getAccessToken({ fetchFn = fetch, adcPath = defaultAdcPath() } = {}) {
-  const creds = JSON.parse(fs.readFileSync(adcPath, 'utf8'));
+export async function getAccessToken({
+  fetchFn = fetch,
+  oauthKeysPath = defaultOauthKeysPath(),
+  tokensPath = defaultTokensPath(),
+} = {}) {
+  const keysRaw = JSON.parse(fs.readFileSync(oauthKeysPath, 'utf8'));
+  // Support both "installed" and "web" OAuth client shapes
+  const keys = keysRaw.installed || keysRaw.web;
+  const tokens = JSON.parse(fs.readFileSync(tokensPath, 'utf8'));
   const resp = await fetchFn('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      client_id: creds.client_id,
-      client_secret: creds.client_secret,
-      refresh_token: creds.refresh_token,
+      client_id: keys.client_id,
+      client_secret: keys.client_secret,
+      refresh_token: tokens.normal.refresh_token,
       grant_type: 'refresh_token',
     }),
   });

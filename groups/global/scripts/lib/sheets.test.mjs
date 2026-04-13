@@ -4,18 +4,28 @@ import os from 'os';
 import path from 'path';
 import { getAccessToken, readRange, appendRows, updateRange } from './sheets.mjs';
 
-// Fake ADC file for tests
-const fakeAdc = {
-  client_id: 'test-client',
-  client_secret: 'test-secret',
-  refresh_token: 'test-refresh',
+// Fake OAuth keys + tokens files (calendar-mcp format)
+const fakeOauthKeys = {
+  installed: {
+    client_id: 'test-client',
+    client_secret: 'test-secret',
+  },
 };
-let adcPath;
+const fakeTokens = {
+  normal: {
+    refresh_token: 'test-refresh',
+    access_token: 'stale',
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+  },
+};
+let oauthKeysPath, tokensPath;
 
 function setUp() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sheets-test-'));
-  adcPath = path.join(tmp, 'adc.json');
-  fs.writeFileSync(adcPath, JSON.stringify(fakeAdc));
+  oauthKeysPath = path.join(tmp, 'gcp-oauth.keys.json');
+  tokensPath = path.join(tmp, 'tokens.json');
+  fs.writeFileSync(oauthKeysPath, JSON.stringify(fakeOauthKeys));
+  fs.writeFileSync(tokensPath, JSON.stringify(fakeTokens));
   return tmp;
 }
 
@@ -46,18 +56,18 @@ describe('getAccessToken', () => {
   beforeEach(() => { tmp = setUp(); });
   afterEach(() => tearDown(tmp));
 
-  it('mints a token from ADC', async () => {
+  it('mints a token from oauth-keys + tokens', async () => {
     const { fn, calls } = mockFetch({ access_token: 'fresh-token' }, {});
-    const token = await getAccessToken({ fetchFn: fn, adcPath });
+    const token = await getAccessToken({ fetchFn: fn, oauthKeysPath, tokensPath });
     expect(token).toBe('fresh-token');
     expect(calls[0].url).toContain('oauth2.googleapis.com/token');
     expect(calls[0].body.toString()).toContain('test-client');
-    expect(calls[0].body.toString()).toContain('refresh_token');
+    expect(calls[0].body.toString()).toContain('test-refresh');
   });
 
-  it('throws on failed token mint', async () => {
+  it('throws Token mint failed when token endpoint returns error', async () => {
     const { fn } = mockFetch({ error: 'invalid_grant' }, {});
-    await expect(getAccessToken({ fetchFn: fn, adcPath })).rejects.toThrow('Token mint failed');
+    await expect(getAccessToken({ fetchFn: fn, oauthKeysPath, tokensPath })).rejects.toThrow('Token mint failed');
   });
 });
 
@@ -71,7 +81,8 @@ describe('readRange', () => {
       { access_token: 'auto-token' },
       { body: { values: [['a', 'b']] } },
     );
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = adcPath;
+    process.env.GOOGLE_OAUTH_CREDENTIALS = oauthKeysPath;
+    process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH = tokensPath;
     try {
       const rows = await readRange('sheet123', 'Tab!A:Z', { fetchFn: fn });
       expect(rows).toEqual([['a', 'b']]);
@@ -80,7 +91,8 @@ describe('readRange', () => {
       expect(calls[0].url).toContain('oauth2.googleapis.com');
       expect(calls[1].headers.Authorization).toBe('Bearer auto-token');
     } finally {
-      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      delete process.env.GOOGLE_OAUTH_CREDENTIALS;
+      delete process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH;
     }
   });
 
@@ -113,7 +125,8 @@ describe('appendRows', () => {
       { access_token: 'append-token' },
       { body: { updatedRows: 1 } },
     );
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = adcPath;
+    process.env.GOOGLE_OAUTH_CREDENTIALS = oauthKeysPath;
+    process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH = tokensPath;
     try {
       await appendRows('sheet123', 'Tab!A:Z', [['val']], { fetchFn: fn });
       expect(calls).toHaveLength(2);
@@ -122,7 +135,8 @@ describe('appendRows', () => {
       expect(calls[1].method).toBe('POST');
       expect(calls[1].url).toContain(':append');
     } finally {
-      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      delete process.env.GOOGLE_OAUTH_CREDENTIALS;
+      delete process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH;
     }
   });
 
@@ -144,7 +158,8 @@ describe('updateRange', () => {
       { access_token: 'update-token' },
       { body: { updatedCells: 1 } },
     );
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = adcPath;
+    process.env.GOOGLE_OAUTH_CREDENTIALS = oauthKeysPath;
+    process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH = tokensPath;
     try {
       await updateRange('sheet123', 'Tab!A1', [['val']], { fetchFn: fn });
       expect(calls).toHaveLength(2);
@@ -152,7 +167,8 @@ describe('updateRange', () => {
       expect(calls[1].headers.Authorization).toBe('Bearer update-token');
       expect(calls[1].method).toBe('PUT');
     } finally {
-      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      delete process.env.GOOGLE_OAUTH_CREDENTIALS;
+      delete process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH;
     }
   });
 
