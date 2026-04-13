@@ -8,7 +8,9 @@ Sheet IDs, tabs, and schemas in `/workspace/global/sheets.md` — read it. This 
 
 ## Status card
 
-Built by `node /workspace/group/build_status_card.mjs`. Update/upsert the pinned status card (`label: "status_card"`) after every log event. Brenda prefers the information be updated in the pin rather than receiving separate text confirmations in the channel ("not here").
+Built by `node /workspace/group/build_status_card.mjs`. Update/upsert the pinned status card (`label: "status_card"`) after every log event.
+
+**Confirm every write with a one-line ack** in the channel — what was logged + when (e.g. `Logged 1 oz at 9:55, pin updated.`). Keep it terse: no commentary, no recap, no pep talk. The pin is the data; the ack is the receipt that the write landed. `[no-reply]` is never correct after a log/edit.
 
 **Before answering any question about totals, history, or sleep hours**, run `build_status_card.mjs` first to get fresh sheet data. Your session may have stale numbers — the sheet is the source of truth, not your memory of previous reads.
 
