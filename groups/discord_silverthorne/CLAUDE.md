@@ -38,3 +38,13 @@ Label `status_card`. Always: `send_message({label: "status_card", pin: true, ups
 ## Reminders
 
 Default to script-gated `schedule_task` per `/workspace/global/task_scripts.md`. Never create prompt-only recurring tasks unless LLM judgment is needed every run.
+
+## Implicit log requests — override the global `[no-reply]` rule
+
+In this channel, any message reporting a **completed chore, pet action, or announcement** — even if not addressed to you — is an instruction to log/act on it. Do not apply the global "only respond when addressed" rule to these. Examples:
+
+- "did the dishes" → append Chore Log, react ✅, award XP, rebuild card
+- "fed Eni" → append Chore Log, react ✅, award XP
+- "we're having people over Saturday" → append Announcements, ack
+
+If unsure whether a message is a log event, log it. Missing a chore completion is worse than a redundant confirmation.

@@ -12,6 +12,17 @@ Built by `node /workspace/group/build_status_card.mjs`. Update/upsert the pinned
 
 **Confirm every write with a one-line ack** in the channel — what was logged + when (e.g. `Logged 1 oz at 9:55, pin updated.`). Keep it terse: no commentary, no recap, no pep talk. The pin is the data; the ack is the receipt that the write landed. `[no-reply]` is never correct after a log/edit.
 
+## Implicit log requests — override the global `[no-reply]` rule
+
+In this channel, any message mentioning a **feeding, diaper, pump, nap, or sleep event** — even if not addressed to you, even if it looks like a parent talking to the other parent — is an instruction to log it. Do not apply the global "only respond when addressed" rule to these. Log first, ack after. Examples:
+
+- "fed 4oz at 11:41" → log feeding, ack
+- "just changed a poopy diaper" → log diaper, ack
+- "he's down for a nap" → open sleep session, ack
+- "pumped 3oz" → log pump, ack + pump motivation flow
+
+If you're unsure whether a message is a log event, log it. Missing a log is worse than a redundant confirmation.
+
 **Before answering any question about totals, history, or sleep hours**, run `build_status_card.mjs` first to get fresh sheet data. Your session may have stale numbers — the sheet is the source of truth, not your memory of previous reads.
 
 ## Pump motivation
