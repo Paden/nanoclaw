@@ -37,7 +37,7 @@ When woken with both answers: post the reveal in #panda — both answers side-by
 
 ## Pinned card (label `panda_heart`)
 
-One pinned message in #panda, label `panda_heart`. Create with `send_message({label: "panda_heart", pin: true, text: ...})`, edit thereafter.
+One pinned message in #panda, label `panda_heart`. **Always** call `send_message({label: "panda_heart", pin: true, upsert: true, text: ...})` — all three flags, every time. `upsert: true` creates the card on the first call and edits the existing message on every subsequent call. Never branch on whether the card exists; never call without `upsert: true`.
 
 ```
 💌 PANDA — Day {N} · {phase}

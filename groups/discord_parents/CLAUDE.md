@@ -43,3 +43,7 @@ Use `mcp__claude_ai_Google_Calendar__gcal_list_events` to fetch today's events.
 
 The full spec lives at `/workspace/group/panda_game_spec.md`. Read it before running, posting, or scheduling anything game-related. It covers phases (36 Questions → Daily Pulse), DM-only answer flow via the Portillo Games sheet, state files, the two script-gated crons, the `panda_heart` pinned card, and tone rules.
 
+## No implicit intake here
+
+Unlike #emilio-care and #silverthorne, this channel does **NOT** have implicit log events. Panda game answers arrive via DM, never in-channel. Game state changes are driven by script-gated crons (morning wake, reveal poller), not by ambient chatter. **Respect the global `[no-reply]` rule here** — if a message isn't addressed to you, isn't a calendar request, and isn't triggered by a cron, stay silent.
+
