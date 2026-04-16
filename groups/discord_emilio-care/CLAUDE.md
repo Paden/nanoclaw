@@ -10,8 +10,8 @@ Sheet IDs, tabs, and schemas in `/workspace/global/sheets.md` — read it. This 
 
 Built by `node /workspace/group/build_status_card.mjs`. After every log event:
 
-1. Run the script — it prints the full card to stdout.
-2. Send script output as `send_message({label: "status_card", pin: true, upsert: true, text: <stdout>})`.
+1. Run the script — it prints the card followed by an `═══ AGENT REF ═══` section with row numbers.
+2. Send **only the lines before `═══ AGENT REF`** as `send_message({label: "status_card", pin: true, upsert: true, text: <card-only>})`.
 3. Send a **separate unlabeled** `send_message` with your one-line ack (e.g. `Logged 1 oz at 9:55, pin updated.`).
 
 **CRITICAL:** `label: "status_card"` = full card ONLY. NEVER put ack text on that label — it replaces the dashboard with a one-liner. Acks are always a second, label-free message. `[no-reply]` is never correct after a log/edit.
@@ -51,5 +51,6 @@ Both print JSON. Parse and ack based on result.
 
 - **Never call `ToolSearch`.** All tools are pre-loaded.
 - **Never call `get_sheet_data` in the pump/feeding/diaper/sleep flow.** `build_status_card.mjs` already reads everything — trust its output.
+- **Never write inline `node --input-type=module -e "..."` scripts to read sheets.** Row numbers for recent entries are in the AGENT REF section of `build_status_card.mjs` output — use them with `update_cells` for corrections.
 - **Never re-read** `soul.md`, `sheets.md`, or `build_status_card.mjs` mid-session.
 - **Never claim a tool is "offline"** — see global "Don't cry wolf". Retry once, then report the literal error.
