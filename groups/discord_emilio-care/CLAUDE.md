@@ -8,9 +8,13 @@ Sheet IDs, tabs, and schemas in `/workspace/global/sheets.md` — read it. This 
 
 ## Status card
 
-Built by `node /workspace/group/build_status_card.mjs`. Update/upsert the pinned status card (`label: "status_card"`) after every log event.
+Built by `node /workspace/group/build_status_card.mjs`. After every log event:
 
-**Confirm every write with a one-line ack** in the channel — what was logged + when (e.g. `Logged 1 oz at 9:55, pin updated.`). Keep it terse: no commentary, no recap, no pep talk. The pin is the data; the ack is the receipt that the write landed. `[no-reply]` is never correct after a log/edit.
+1. Run the script — it prints the full card to stdout.
+2. Send script output as `send_message({label: "status_card", pin: true, upsert: true, text: <stdout>})`.
+3. Send a **separate unlabeled** `send_message` with your one-line ack (e.g. `Logged 1 oz at 9:55, pin updated.`).
+
+**CRITICAL:** `label: "status_card"` = full card ONLY. NEVER put ack text on that label — it replaces the dashboard with a one-liner. Acks are always a second, label-free message. `[no-reply]` is never correct after a log/edit.
 
 ## Implicit log requests — override the global `[no-reply]` rule
 
@@ -33,6 +37,15 @@ Read `/workspace/group/pump_rules.md` on first pump event — covers reply forma
 
 - **Implicit wake-up:** if Emilio is being fed, he's awake. On feeding, check Sleep Log for an open session (Start but no Duration) and close it automatically.
 - **NEVER close a nap unless a parent tells you to** — either by logging a feeding or explicitly saying the baby is awake. Do not close naps based on elapsed time, typical duration, wind-down targets, scheduled updates, or your own judgment. If Duration is empty, the nap is open — leave it.
+
+## Sleep Log writes — use the scripts, not Sheets MCP
+
+Direct `update_cells` has caused wrong-row and format-coercion bugs. Use:
+
+- **Open:** `node /workspace/group/open_sleep.mjs "YYYY-MM-DD HH:MM:SS"` — appends row. Fails if session already open.
+- **Close:** `node /workspace/group/close_sleep.mjs "YYYY-MM-DD HH:MM:SS"` — finds open row, writes duration as RAW int. Fails if zero or >1 open sessions (surface ambiguity to parent).
+
+Both print JSON. Parse and ack based on result.
 
 ## Speed rules — DO NOT violate
 
