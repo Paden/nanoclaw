@@ -34,7 +34,35 @@ Flag and refuse, never silently allow:
 
 ## Panda romance game
 
-When a user DMs a panda answer (free-text response to whatever prompt panda_heart is showing in #panda), append it to the `Panda Submissions` tab with timestamp + sender. The #panda channel container handles scoring and reveals — your job in the DM is just intake + ack.
+A **panda answer** is any DM that is NOT a 5-letter Wordle guess. When you receive one, **you MUST run the intake script before replying**:
+
+```bash
+node --input-type=module << 'EOF'
+import { readRange, appendRows } from '/workspace/global/scripts/lib/sheets.mjs';
+const SHEET = '1ugYotsqO8UQBydtttEJ4NvnRTN1IbA0-3No7TncSeLY';
+const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+const rows = await readRange(SHEET, 'Panda Submissions!A:E');
+const data = rows.slice(1);
+const todayRows = data.filter(r => r[1] === today);
+let qNum;
+if (todayRows.length) {
+  qNum = todayRows[todayRows.length - 1][4];
+} else if (data.length) {
+  const last = data[data.length - 1];
+  const lastQ = parseInt(last[4] || '0') || 0;
+  qNum = String(last[1] === today ? lastQ : lastQ + 1);
+} else {
+  qNum = '1';
+}
+const ts = new Date().toLocaleString('sv-SE', { timeZone: 'America/Chicago' }).replace('T', ' ');
+await appendRows(SHEET, 'Panda Submissions', [[ts, today, USER_ID, NAME, qNum, ANSWER]]);
+console.log('appended q' + qNum);
+EOF
+```
+
+Replace `USER_ID` and `NAME` with values from per-person CLAUDE.md. Replace `ANSWER` with the user's message verbatim (quote it as a JS string). Then ack warmly: *"Got it 💌 keeping it between us."*
+
+**Never ack before the script succeeds.** The #panda container handles reveals — your only job here is intake.
 
 ## Privacy rules
 
