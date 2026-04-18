@@ -427,14 +427,20 @@ async function runQuery(
   // the orchestrator posting result.result).
   let sentViaIpc = false;
 
-  // Accumulate token usage across all result messages in this query
-  const cumulativeUsage: TokenUsage = {
-    input_tokens: 0,
+  // Accumulate output tokens and cost across all result messages in this query.
+  // input_tokens is tracked separately via peakPerCallInputTokens below.
+  const cumulativeUsage = {
     output_tokens: 0,
     cache_read_input_tokens: 0,
     cache_creation_input_tokens: 0,
     cost_usd: 0,
   };
+
+  // Peak input_tokens from individual Ollama API calls (the real context size).
+  // Each assistant message carries the token count for that single API call.
+  // This is the source of truth for compaction and DB logging — not the
+  // cumulative sum across turns, which inflates linearly and causes false alerts.
+  let peakPerCallInputTokens = 0;
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
@@ -693,6 +699,16 @@ async function runQuery(
 
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
+
+      // Track peak per-API-call input tokens from Ollama (the real context size).
+      // Each assistant message = one API call; input_tokens = full context sent.
+      const assistantUsage = (
+        message as { message?: { usage?: { input_tokens?: number } } }
+      ).message?.usage;
+      if (assistantUsage?.input_tokens && assistantUsage.input_tokens > peakPerCallInputTokens) {
+        peakPerCallInputTokens = assistantUsage.input_tokens;
+      }
+
       // Per-group tool-call log: extract any tool_use blocks from this
       // assistant message and append to /workspace/group/logs/tool-calls.jsonl
       // so the operator can grep "did the agent actually call sheets?"
@@ -765,13 +781,14 @@ async function runQuery(
       const textResult =
         'result' in message ? (message as { result?: string }).result : null;
 
-      // Accumulate token usage from result messages
+      // Accumulate output tokens and cost from result messages (these are
+      // genuinely additive per turn). input_tokens comes from peakPerCallInputTokens
+      // instead — the actual Ollama per-API-call context size, not a running sum.
       const msgAny = message as {
-        usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+        usage?: { output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
         modelUsage?: Record<string, { costUSD?: number; inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number }>;
       };
       if (msgAny.usage) {
-        cumulativeUsage.input_tokens += msgAny.usage.input_tokens || 0;
         cumulativeUsage.output_tokens += msgAny.usage.output_tokens || 0;
         cumulativeUsage.cache_read_input_tokens += msgAny.usage.cache_read_input_tokens || 0;
         cumulativeUsage.cache_creation_input_tokens += msgAny.usage.cache_creation_input_tokens || 0;
@@ -783,18 +800,20 @@ async function runQuery(
       }
 
       log(
-        `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''} tokens=${cumulativeUsage.input_tokens}in/${cumulativeUsage.output_tokens}out cost=$${cumulativeUsage.cost_usd.toFixed(4)}`,
+        `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''} ctx=${peakPerCallInputTokens}in/${cumulativeUsage.output_tokens}out cost=$${cumulativeUsage.cost_usd.toFixed(4)}`,
       );
       writeOutput({
         status: 'success',
         result: sentViaIpc ? null : textResult || null,
         newSessionId,
-        usage: cumulativeUsage,
+        usage: {
+          ...cumulativeUsage,
+          input_tokens: peakPerCallInputTokens,
+        },
       });
-      // Reset per-turn flag: in streaming mode this same query() handles
-      // multiple user inputs. Without resetting, a previous turn's plain
-      // send_message would suppress the *next* turn's result text.
+      // Reset per-turn flags for next IPC message in this streaming session.
       sentViaIpc = false;
+      peakPerCallInputTokens = 0;
     }
   }
 

@@ -70,9 +70,9 @@ export const DM_SESSION_TTL = parseInt(
   10,
 ); // 12h default — DM sessions older than this start fresh
 export const COMPACT_TOKEN_THRESHOLD = parseInt(
-  process.env.COMPACT_TOKEN_THRESHOLD || '50000',
+  process.env.COMPACT_TOKEN_THRESHOLD || '100000',
   10,
-); // Trigger compaction when a session exceeds this many input tokens
+); // Trigger compaction when a session's peak per-API-call input tokens exceeds this
 export const COMPACT_MODEL = process.env.COMPACT_MODEL || 'gemma4:31b-cloud'; // Model used for summarization
 export const MAX_CONCURRENT_CONTAINERS = Math.max(
   1,

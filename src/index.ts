@@ -16,7 +16,11 @@ import {
   POLL_INTERVAL,
   TIMEZONE,
 } from './config.js';
-import { shouldCompact, compactSession } from './compaction.js';
+import {
+  shouldCompact,
+  compactSession,
+  COMPACT_TOKEN_THRESHOLD,
+} from './compaction.js';
 import { readEnvFile } from './env.js';
 import './channels/index.js';
 import {
@@ -259,10 +263,37 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     MAX_MESSAGES_PER_PROMPT,
   );
 
-  if (missedMessages.length === 0) return true;
+  // Check for orphaned IPC input files before the early-exit check.
+  // These are messages that were piped to a container that died before
+  // processing them. The cursor was already advanced past these messages, so
+  // the DB query above finds nothing — but a new container will drain them
+  // via drainIpcInput() at startup. We skip the trigger gate for IPC-drain-
+  // only runs because the messages were already gate-checked when first piped.
+  const ipcInputDir = path.join(DATA_DIR, 'ipc', group.folder, 'input');
+  const hasOrphanedIpc = (() => {
+    try {
+      return fs.readdirSync(ipcInputDir).some((f) => /^\d+-.+\.json$/.test(f));
+    } catch {
+      return false;
+    }
+  })();
 
-  // For non-main groups, check if trigger is required and present
-  if (!isMainGroup && group.requiresTrigger !== false) {
+  if (missedMessages.length === 0 && !hasOrphanedIpc) return true;
+
+  if (missedMessages.length === 0) {
+    logger.info(
+      { group: group.name },
+      'Starting container to drain orphaned IPC input files',
+    );
+  }
+
+  // For non-main groups with DB messages, check if trigger is required.
+  // Skip the trigger gate for pure IPC drain (already gate-checked on first pipe).
+  if (
+    missedMessages.length > 0 &&
+    !isMainGroup &&
+    group.requiresTrigger !== false
+  ) {
     const triggerPattern = getTriggerPattern(group.trigger);
     const allowlistCfg = loadSenderAllowlist();
     const hasTrigger = missedMessages.some(
@@ -275,12 +306,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const prompt = formatMessages(missedMessages, TIMEZONE);
 
-  // Advance cursor so the piping path in startMessageLoop won't re-fetch
-  // these messages. Save the old cursor so we can roll back on error.
+  // Advance cursor only when there are DB messages to advance past.
+  // IPC drain keeps the cursor as-is (it's already past those messages).
   const previousCursor = lastAgentTimestamp[chatJid] || '';
-  lastAgentTimestamp[chatJid] =
-    missedMessages[missedMessages.length - 1].timestamp;
-  saveState();
+  if (missedMessages.length > 0) {
+    lastAgentTimestamp[chatJid] =
+      missedMessages[missedMessages.length - 1].timestamp;
+    saveState();
+  }
 
   logger.info(
     { group: group.name, messageCount: missedMessages.length },
@@ -544,14 +577,23 @@ async function runAgent(
       return 'error';
     }
 
-    // Compaction: for non-Claude models, summarize and reset when session
-    // context grows too large. The SDK's built-in auto-compact only fires
-    // for Claude models, so Ollama sessions balloon without this.
+    // Compaction: summarize and reset sessions when context grows too large.
+    //
+    // Non-Claude (Ollama): no built-in auto-compact — fires at COMPACT_TOKEN_THRESHOLD.
+    // Claude models: the SDK has auto-compact but it only fires within a single
+    // query() call. Our IPC multi-turn loop calls query() repeatedly in the same
+    // container (one per message), and each resumed call inherits the full JSONL
+    // history — so tokens grow linearly across back-to-back messages without any
+    // compaction. Use a 3× higher threshold (150K default) to avoid resetting
+    // short conversations while still preventing runaway DM/group sessions.
     const model = resolveGroupModel(group.folder);
     const isNonClaude = model && !model.startsWith('claude-');
-    if (isNonClaude && peakInputTokens > 0 && shouldCompact(peakInputTokens)) {
+    const effectiveCompactThreshold = isNonClaude
+      ? COMPACT_TOKEN_THRESHOLD
+      : COMPACT_TOKEN_THRESHOLD * 3;
+    if (peakInputTokens > 0 && peakInputTokens >= effectiveCompactThreshold) {
       logger.info(
-        { group: group.name, peakInputTokens },
+        { group: group.name, peakInputTokens, effectiveCompactThreshold },
         'Session exceeds compaction threshold, summarizing',
       );
       const result = await compactSession(group.folder, chatJid);
@@ -685,9 +727,54 @@ async function startMessageLoop(): Promise<void> {
 
 /**
  * Startup recovery: check for unprocessed messages in registered groups.
- * Handles crash between advancing lastTimestamp and processing messages.
+ * Handles two failure modes:
+ *   1. Crash between advancing lastTimestamp and container finishing — DB cursor
+ *      is already past the messages, but they're still unprocessed in the DB.
+ *   2. Orphaned IPC input files — messages written to data/ipc/<group>/input/
+ *      for a container that died before reading them. The cursor was already
+ *      advanced past these messages so the DB check misses them; a new
+ *      container drains them via drainIpcInput() at startup.
  */
 function recoverPendingMessages(): void {
+  // Build folder→JID reverse map for IPC orphan recovery
+  const folderToJid = new Map<string, string>(
+    Object.entries(registeredGroups).map(([jid, g]) => [g.folder, jid]),
+  );
+
+  // Scan IPC input dirs for orphaned message files
+  const ipcBase = path.join(DATA_DIR, 'ipc');
+  try {
+    for (const groupFolder of fs.readdirSync(ipcBase)) {
+      const inputDir = path.join(ipcBase, groupFolder, 'input');
+      let hasFiles = false;
+      try {
+        hasFiles = fs
+          .readdirSync(inputDir)
+          .some((f) => /^\d+-.+\.json$/.test(f));
+      } catch {
+        continue;
+      }
+      if (!hasFiles) continue;
+
+      const chatJid = folderToJid.get(groupFolder);
+      if (!chatJid) {
+        logger.warn(
+          { groupFolder },
+          'Recovery: orphaned IPC files for unregistered group, skipping',
+        );
+        continue;
+      }
+      logger.info(
+        { groupFolder },
+        'Recovery: found orphaned IPC input files, starting container to drain',
+      );
+      queue.enqueueMessageCheck(chatJid);
+    }
+  } catch {
+    /* ipc dir may not exist yet */
+  }
+
+  // DB recovery: check for messages past cursor that were never processed
   for (const [chatJid, group] of Object.entries(registeredGroups)) {
     const pending = getMessagesSince(
       chatJid,
