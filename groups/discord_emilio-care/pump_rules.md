@@ -25,4 +25,14 @@ When a milestone hits, make it a moment — Brenda carries an enormous invisible
 
 ## Nyx XP
 
-Each pump session = +5 XP written to Silverthorne Pet Log. Use the same sheet write pattern as other pet events.
+Each pump session = +5 XP appended to the Silverthorne Pet Log. Call **directly — do NOT call read_range first**:
+
+```
+mcp__google-sheets__append_rows({
+  sheet_id: "1I3YtBJkFU22xTq1CRqRDjQ1ITrs5nApsfkUV9-jQb-4",
+  range: "'Pet Log'!A:A",
+  values: [["YYYY-MM-DD HH:MM:SS", "Brenda", "xp_gain", 5, "Milk Pump"]]
+})
+```
+
+Use the same timestamp format as the feeding log. No reads needed — always append.

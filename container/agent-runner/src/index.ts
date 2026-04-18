@@ -510,6 +510,44 @@ async function runQuery(
     'mcp__ollama__*',
   ];
 
+  // Per-group MCP overrides — applied after mcpServers is built.
+  // removeServers: drop these servers entirely (and their wildcard from allowedTools).
+  // disallowedTools: hard-blocked via --disallowedTools CLI flag (unlike allowedTools
+  //   manipulation, this survives --allow-dangerously-skip-permissions).
+  const GROUP_MCP_CONFIG: Record<
+    string,
+    {
+      removeServers?: string[];
+      disallowedTools?: string[];
+    }
+  > = {
+    // DMs only ever use mcp__nanoclaw__* (send_message, discord_add_reaction).
+    // Wordle scoring and panda intake go through Bash scripts — no calendar,
+    // sheets, or ollama MCP needed. Removing 21 dead-weight tool schemas.
+    'discord_dms_brenda': { removeServers: ['google-calendar', 'google-sheets', 'ollama'] },
+    'discord_dms_paden':  { removeServers: ['google-calendar', 'google-sheets', 'ollama'] },
+    'discord_dms_danny':  { removeServers: ['google-calendar', 'google-sheets', 'ollama'] },
+
+    'discord_emilio-care': {
+      // Calendar is never used in this channel. Ollama is not needed — CLAUDE.md
+      // bans ToolSearch and the group is latency-sensitive. Together they add
+      // ~18 tool schemas (≈8 K tokens) for zero benefit.
+      removeServers: ['google-calendar', 'ollama'],
+      // read_range / batch_read_ranges / get_spreadsheet_info return raw
+      // JSON.stringify(rows) — a 700-row Feedings tab is ~200 K tokens in context.
+      // All reads go through build_status_card.mjs which pre-processes to ~500
+      // chars. Only writes are needed via MCP.
+      // NOTE: replaceToolWildcards (allowedTools manipulation) is ineffective with
+      // allowDangerouslySkipPermissions:true — use disallowedTools instead, which
+      // is a hard CLI-level block regardless of permission mode.
+      disallowedTools: [
+        'mcp__google-sheets__read_range',
+        'mcp__google-sheets__batch_read_ranges',
+        'mcp__google-sheets__get_spreadsheet_info',
+      ],
+    },
+  };
+
   const mcpServers: Record<string, unknown> = {
     nanoclaw: {
       command: 'node',
@@ -566,15 +604,45 @@ async function runQuery(
     },
   };
 
-  // Startup assertion: every registered MCP server MUST have a matching
-  // `mcp__{name}__*` entry in allowedTools, otherwise tools from that server
-  // are silently disallowed. This class of bug once ate days of debugging
-  // when the allowlist used underscores and server names used hyphens.
-  for (const name of Object.keys(mcpServers)) {
-    const pattern = `mcp__${name}__*`;
-    if (!allowedTools.includes(pattern)) {
+  // Apply per-group MCP overrides
+  const groupMcpConfig = GROUP_MCP_CONFIG[containerInput.groupFolder];
+  const effectiveMcpServers: Record<string, unknown> = { ...mcpServers };
+  let effectiveAllowedTools = [...allowedTools];
+  let effectiveDisallowedTools: string[] = [];
+
+  if (groupMcpConfig) {
+    // Remove servers (and their wildcard) for this group
+    for (const server of groupMcpConfig.removeServers ?? []) {
+      delete effectiveMcpServers[server];
+      effectiveAllowedTools = effectiveAllowedTools.filter(
+        (t) => t !== `mcp__${server}__*`,
+      );
+    }
+    // Hard-block specific tools via --disallowedTools. Unlike allowedTools
+    // manipulation, this is enforced by the CLI regardless of permission mode.
+    effectiveDisallowedTools = groupMcpConfig.disallowedTools ?? [];
+    if (groupMcpConfig.removeServers?.length || effectiveDisallowedTools.length) {
+      log(
+        `Group MCP override for '${containerInput.groupFolder}': ` +
+          `removed=[${groupMcpConfig.removeServers?.join(',') ?? ''}] ` +
+          `disallowed=[${effectiveDisallowedTools.join(',')}]`,
+      );
+    }
+  }
+
+  // Startup assertion: every registered MCP server MUST have at least one
+  // matching tool entry in effectiveAllowedTools, otherwise all tools from
+  // that server are silently disallowed. This catches allowlist mismatches
+  // (e.g. underscores vs hyphens in server names) before the session starts.
+  for (const name of Object.keys(effectiveMcpServers)) {
+    const hasAnyTool =
+      effectiveAllowedTools.includes(`mcp__${name}__*`) ||
+      effectiveAllowedTools.some((t) => t.startsWith(`mcp__${name}__`));
+    if (!hasAnyTool) {
       throw new Error(
-        `MCP allowlist mismatch: server '${name}' is registered in mcpServers but '${pattern}' is not in allowedTools. All tools from this server would be silently disallowed.`,
+        `MCP allowlist mismatch: server '${name}' is registered in mcpServers but ` +
+          `no 'mcp__${name}__*' or explicit tools are in allowedTools. ` +
+          `All tools from this server would be silently disallowed.`,
       );
     }
   }
@@ -601,13 +669,14 @@ async function runQuery(
       systemPrompt: globalClaudeMd
         ? `${SYSTEM_PROMPT}\n\n${globalClaudeMd}`
         : SYSTEM_PROMPT,
-      allowedTools,
+      allowedTools: effectiveAllowedTools,
+      disallowedTools: effectiveDisallowedTools,
       maxTurns,
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       settingSources: ['project', 'user'],
-      mcpServers: mcpServers as never,
+      mcpServers: effectiveMcpServers as never,
       hooks: {
         PreCompact: [
           { hooks: [createPreCompactHook(containerInput.assistantName)] },
