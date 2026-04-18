@@ -34,9 +34,9 @@ The wizard runs sequentially. Each step shows a spinner and resolves to ✓ or �
 2. **Verify SSH connection** — test connection; fail fast before doing anything
 3. **Verify server prereqs** — confirm Node.js ≥20, Docker, and `claude` CLI are present; warn if missing but don't block
 4. **Sync repo** — `rsync` project directory to server, excluding `node_modules/`, `dist/`, `logs/`
-5. **Copy secrets** — `scp` `.env` to `<project>/` and `~/.config/nanoclaw/` to server
+5. **Copy secrets** — `scp` `.env` to `<project>/` and `~/.config/nanoclaw/` (both `mount-allowlist.json` and `sender-allowlist.json`) to server
 6. **Copy runtime state** — `rsync` `store/` (SQLite DB, sessions) and `data/` (IPC queue, container env files)
-7. **Set up OneCLI** — install `onecli` on server, replay secrets and agent configs from local `onecli` CLI, patch `ONECLI_URL` in remote `.env` to `http://localhost:<port>`
+7. **Set up OneCLI** — install the `onecli` CLI binary on the server (`npm install -g onecli` or equivalent), start the OneCLI proxy daemon (the local HTTP gateway that containers route through), replay secrets and agent configs from local `onecli` CLI output, patch `ONECLI_URL` in remote `.env` to the local proxy address
 8. **Install dependencies & build** — SSH: `npm install && npm run build`
 9. **Build agent container** — SSH: `./container/build.sh`
 10. **Install systemd service** — generate `nanoclaw.service` unit from embedded template, write to `~/.config/systemd/user/nanoclaw.service`, run `systemctl --user daemon-reload && systemctl --user enable nanoclaw`
@@ -59,7 +59,7 @@ Single file, ~300 lines. Three internal layers:
 - `runRemote(creds, command)` — wraps `spawnSync('ssh', [...])`, throws `MigrateError` with stdout+stderr on non-zero exit
 - `rsyncTo(creds, localPath, remotePath, excludes?)` — wraps `spawnSync('rsync', ['-avz', '--exclude=...', ...])`
 - `scpTo(creds, localPath, remotePath)` — wraps `spawnSync('scp', [...])`
-- SSH args built once from collected creds; key file or password handled via `-i` flag or `sshpass` respectively
+- SSH args built once from collected creds; key file auth via `-i` flag (strongly preferred). Password auth requires `sshpass` which is not installed by default on macOS — wizard warns and recommends key-based auth if no key file is provided
 
 **Step runner**
 - `runStep(label, fn)` — runs `fn()`, catches `MigrateError`, prompts retry/skip/abort
