@@ -428,6 +428,25 @@ async function main() {
     summaries,
   );
 
+  // ── Step 8: Install dependencies and build ────────────────────────────────────
+  await runStep(
+    'npm install && npm run build on server',
+    () => {
+      runRemote(creds, `cd ${creds.remoteProjectPath} && npm install`);
+      runRemote(creds, `cd ${creds.remoteProjectPath} && npm run build`);
+    },
+    summaries,
+  );
+
+  // ── Step 9: Build agent container ─────────────────────────────────────────────
+  await runStep(
+    'Build agent container (./container/build.sh)',
+    () => {
+      runRemote(creds, `cd ${creds.remoteProjectPath} && bash ./container/build.sh`);
+    },
+    summaries,
+  );
+
   finish(summaries);
 }
 
