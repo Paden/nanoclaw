@@ -134,6 +134,19 @@ function scpTo(creds: SshCreds, localPath: string, remotePath: string): void {
   }
 }
 
+function checkRemoteCommand(creds: SshCreds, cmd: string): boolean {
+  const result = spawnSync(
+    'ssh',
+    [
+      ...buildSshArgs(creds),
+      `${creds.user}@${creds.host}`,
+      `command -v ${cmd} >/dev/null 2>&1 && echo ok || echo missing`,
+    ],
+    { encoding: 'utf8' },
+  );
+  return (result.stdout ?? '').trim() === 'ok';
+}
+
 // ─── Step runner ──────────────────────────────────────────────────────────────
 
 interface StepSummary {
@@ -239,6 +252,26 @@ async function main() {
     summaries,
   );
   if (!cont) return finish(summaries);
+
+  // ── Step 3: Verify server prereqs ────────────────────────────────────────────
+  await runStep(
+    'Verify server prerequisites',
+    () => {
+      const missing: string[] = [];
+      for (const cmd of ['node', 'docker', 'claude']) {
+        if (!checkRemoteCommand(creds, cmd)) missing.push(cmd);
+      }
+      const nodeVersion = runRemote(creds, 'node --version 2>/dev/null || echo none').trim();
+      if (nodeVersion !== 'none') {
+        const major = parseInt(nodeVersion.replace('v', '').split('.')[0], 10);
+        if (major < 20) missing.push(`node>=20 (found ${nodeVersion})`);
+      }
+      if (missing.length > 0) {
+        log.warn(`Missing on server (continuing anyway): ${missing.join(', ')}`);
+      }
+    },
+    summaries,
+  );
 
   outro('Connected! Continuing with migration steps...');
   // More steps will be added in subsequent tasks
