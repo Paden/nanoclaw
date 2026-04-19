@@ -134,6 +134,54 @@ function scpTo(creds: SshCreds, localPath: string, remotePath: string): void {
   }
 }
 
+// ─── Step runner ──────────────────────────────────────────────────────────────
+
+interface StepSummary {
+  label: string;
+  result: 'completed' | 'skipped' | 'aborted';
+}
+
+async function runStep(
+  label: string,
+  fn: () => void | Promise<void>,
+  summaries: StepSummary[],
+): Promise<boolean> {
+  const s = spinner();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    s.start(label);
+    try {
+      await fn();
+      s.stop(`${label}`);
+      summaries.push({ label, result: 'completed' });
+      return true;
+    } catch (err) {
+      const output =
+        err instanceof MigrateError ? err.output : String(err);
+      s.stop(`${label} — FAILED`);
+      if (output) log.error(output);
+
+      const action = await select({
+        message: 'What would you like to do?',
+        options: [
+          { value: 'retry', label: 'Retry this step' },
+          { value: 'skip', label: 'Skip and continue' },
+          { value: 'abort', label: 'Abort migration' },
+        ],
+      });
+
+      if (action === 'retry') continue;
+      if (action === 'skip') {
+        summaries.push({ label, result: 'skipped' });
+        return true;
+      }
+      // abort
+      summaries.push({ label, result: 'aborted' });
+      return false;
+    }
+  }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
