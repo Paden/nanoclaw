@@ -447,6 +447,28 @@ async function main() {
     summaries,
   );
 
+  // ── Step 10: Install systemd service ──────────────────────────────────────────
+  await runStep(
+    'Install systemd service',
+    () => {
+      const nodePath = runRemote(creds, 'which node').trim();
+      const unit = buildSystemdUnit(nodePath, creds.remoteProjectPath);
+      const unitDir = '~/.config/systemd/user';
+      const unitPath = `${unitDir}/nanoclaw.service`;
+
+      runRemote(creds, `mkdir -p ${unitDir}`);
+      // Write unit file via printf
+      const escaped = unit.replace(/'/g, "'\\''");
+      runRemote(creds, `printf '%s' '${escaped}' > ${unitPath}`);
+      runRemote(
+        creds,
+        'systemctl --user daemon-reload && systemctl --user enable nanoclaw',
+      );
+      log.success(`systemd unit installed at ${unitPath}`);
+    },
+    summaries,
+  );
+
   finish(summaries);
 }
 
