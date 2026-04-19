@@ -469,6 +469,44 @@ async function main() {
     summaries,
   );
 
+  // ── Step 11: Configure dev Claude CLI ────────────────────────────────────────
+  await runStep(
+    'Configure dev Claude CLI (~/.bashrc Ollama Pro env vars)',
+    async () => {
+      // Read current .env to get values — these are already on disk locally
+      const { readFileSync } = await import('fs');
+      const envContent = readFileSync('.env', 'utf8');
+      const getEnvVal = (key: string): string => {
+        const match = envContent.match(new RegExp(`^${key}=(.+)$`, 'm'));
+        return match ? match[1].trim() : '';
+      };
+
+      // For dev sessions on the server, point at the Ollama Pro endpoint via OneCLI
+      const onecliUrl = getEnvVal('ONECLI_URL');
+      const ollamaApiKey = getEnvVal('OLLAMA_API_KEY');
+      const anthropicModel = getEnvVal('ANTHROPIC_MODEL');
+
+      if (!onecliUrl || !ollamaApiKey) {
+        log.warn(
+          'Could not read ONECLI_URL or OLLAMA_API_KEY from local .env — skipping bashrc update.',
+        );
+        return;
+      }
+
+      const bashrcContent = runRemote(creds, 'cat ~/.bashrc 2>/dev/null || echo ""');
+      if (!needsBashrcUpdate(bashrcContent)) {
+        log.info('~/.bashrc already contains nanoclaw-dev block — skipping.');
+        return;
+      }
+
+      const block = buildBashrcBlock(onecliUrl, ollamaApiKey, anthropicModel);
+      const escaped = block.replace(/'/g, "'\\''");
+      runRemote(creds, `printf '%s' '${escaped}' >> ~/.bashrc`);
+      log.success('Appended Ollama Pro dev config to ~/.bashrc');
+    },
+    summaries,
+  );
+
   finish(summaries);
 }
 
