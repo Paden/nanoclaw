@@ -273,6 +273,65 @@ async function main() {
     summaries,
   );
 
+  // ── Step 4: Sync repo ─────────────────────────────────────────────────────────
+  const localRoot = process.cwd();
+  let cont2 = await runStep(
+    'Sync repo to server',
+    () => {
+      runRemote(creds, `mkdir -p ${creds.remoteProjectPath}`);
+      rsyncTo(creds, `${localRoot}/`, `${creds.remoteProjectPath}/`, [
+        'node_modules',
+        'dist',
+        'logs',
+        '.git',
+        'store',
+        'data',
+      ]);
+    },
+    summaries,
+  );
+  if (!cont2) return finish(summaries);
+
+  // ── Step 5: Copy secrets and config ──────────────────────────────────────────
+  cont2 = await runStep(
+    'Copy .env and ~/.config/nanoclaw/',
+    () => {
+      scpTo(creds, `${localRoot}/.env`, `${creds.remoteProjectPath}/.env`);
+      runRemote(creds, `mkdir -p ~/.config/nanoclaw`);
+      const configDir = `${process.env.HOME}/.config/nanoclaw`;
+      scpTo(
+        creds,
+        `${configDir}/mount-allowlist.json`,
+        `~/.config/nanoclaw/mount-allowlist.json`,
+      );
+      // sender-allowlist is optional — may not exist
+      const result = spawnSync('test', ['-f', `${configDir}/sender-allowlist.json`]);
+      if (result.status === 0) {
+        scpTo(
+          creds,
+          `${configDir}/sender-allowlist.json`,
+          `~/.config/nanoclaw/sender-allowlist.json`,
+        );
+      }
+    },
+    summaries,
+  );
+  if (!cont2) return finish(summaries);
+
+  // ── Step 6: Copy runtime state ────────────────────────────────────────────────
+  await runStep(
+    'Copy runtime state (store/ and data/)',
+    () => {
+      runRemote(
+        creds,
+        `mkdir -p ${creds.remoteProjectPath}/store ${creds.remoteProjectPath}/data`,
+      );
+      rsyncTo(creds, `${localRoot}/store/`, `${creds.remoteProjectPath}/store/`);
+      rsyncTo(creds, `${localRoot}/data/`, `${creds.remoteProjectPath}/data/`);
+    },
+    summaries,
+  );
+
   outro('Connected! Continuing with migration steps...');
   // More steps will be added in subsequent tasks
   finish(summaries);
