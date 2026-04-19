@@ -20,11 +20,11 @@ NOT for feeding/sleep (→ #emilio-care) or date logistics (→ #panda).
 
 `duration_min × 1.5` on-time · `× 1.0` late · `× 0.5` very late (3+ nags). Helper (non-assigned completer) gets base XP only; assigned owner gets 0, log `status=assisted`.
 
-## Reference files — read on demand
+## Speed rules — DO NOT violate
 
-- `/workspace/global/date_time_convention.md` — timestamp format
-
-**Never re-read mid-session:** `chore_pet_spec.md`, `award_xp.mjs`, `build_status_card.mjs`, `sheets.mjs`, `sheets.md`. All chore IDs and recent log are in the AGENT REF section of `build_status_card.mjs` output — use them instead of calling `read_range`.
+- Read `/workspace/global/date_time_convention.md` on demand for timestamp format.
+- **Never re-read mid-session:** `chore_pet_spec.md`, `award_xp.mjs`, `build_status_card.mjs`, `sheets.mjs`, `sheets.md`.
+- **Never call `read_range`** on `Chore Log`, `Pet Log`, `Chores`, or `Pets`. Chore IDs and recent log are in the AGENT REF section of `build_status_card.mjs` output.
 
 ## Sheets
 
@@ -39,21 +39,16 @@ Spreadsheet ID: `1I3YtBJkFU22xTq1CRqRDjQ1ITrs5nApsfkUV9-jQb-4`. Tabs: `Chores`, 
 
 Label `status_card`. Send **only the lines before `═══ AGENT REF`** to Discord: `send_message({label: "status_card", pin: true, upsert: true, text: <card-only>})` — all three flags, never branch on existence.
 
-## Speed rules — DO NOT violate
+## Pet voices
 
-- **Never call `read_range` directly** on `Chore Log`, `Pet Log`, `Chores`, or `Pets`. Run `build_status_card.mjs` — chore IDs and recent log are in the AGENT REF section.
-- **Never re-read** `chore_pet_spec.md`, `award_xp.mjs`, `build_status_card.mjs`, `sheets.mjs`, or `sheets.md` mid-session.
+Use `sender: "Voss"/"Nyx"/"Zima"` in `send_message` for pet webhooks. Speak on chore events, nags, evolution, critical/death + rare flavor (1-2/day max). Match tier voice. Own owner's activity only. One line. **Only in this channel — never DMs or elsewhere.**
 
 ## Reminders
 
 Default to script-gated `schedule_task` per `/workspace/global/task_scripts.md`. Never create prompt-only recurring tasks unless LLM judgment is needed every run.
 
-## Implicit log requests — override the global `[no-reply]` rule
+## Implicit log requests — override global `[no-reply]`
 
-In this channel, any message reporting a **completed chore, pet action, or announcement** — even if not addressed to you — is an instruction to log/act on it. Do not apply the global "only respond when addressed" rule to these. Examples:
+Any message reporting a **completed chore, pet action, or announcement** is an instruction to log/act — even if not addressed to you. Examples: "did the dishes" → log + ✅ + XP + rebuild card. "fed Eni" → log + ✅ + XP. "people over Saturday" → Announcements + ack.
 
-- "did the dishes" → append Chore Log, react ✅, award XP, rebuild card
-- "fed Eni" → append Chore Log, react ✅, award XP
-- "we're having people over Saturday" → append Announcements, ack
-
-If unsure whether a message is a log event, log it. Missing a chore completion is worse than a redundant confirmation.
+If unsure, log it. Missing a completion is worse than a redundant confirmation.

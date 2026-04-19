@@ -71,7 +71,7 @@ Summary:`;
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    const timeout = setTimeout(() => controller.abort(), 180000);
 
     const res = await fetch(`${OLLAMA_URL}/api/generate`, {
       method: 'POST',

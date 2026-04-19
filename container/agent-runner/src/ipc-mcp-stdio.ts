@@ -20,6 +20,15 @@ const chatJid = process.env.NANOCLAW_CHAT_JID!;
 const groupFolder = process.env.NANOCLAW_GROUP_FOLDER!;
 const isMain = process.env.NANOCLAW_IS_MAIN === '1';
 
+// Pet-voice webhook sending is scoped to #silverthorne and #family-fun —
+// the two public channels where Voss/Nyx/Zima have reasons to speak (chores
+// + games). Every other channel (DMs, emilio-care, general, etc.) must post
+// as Claudio; we omit the `sender` field from the tool schema there so the
+// agent never sees it as an option.
+const petVoicesAllowed =
+  groupFolder === 'discord_silverthorne' ||
+  groupFolder === 'discord_family-fun';
+
 function writeIpcFile(dir: string, data: object): string {
   fs.mkdirSync(dir, { recursive: true });
 
@@ -39,43 +48,50 @@ const server = new McpServer({
   version: '1.0.0',
 });
 
+const sendMessageSchema: Record<string, z.ZodTypeAny> = {
+  text: z.string().describe('The message text to send'),
+  label: z
+    .string()
+    .optional()
+    .describe(
+      'Logical label to remember this message by (e.g. "status_card"). Required to later edit/pin/delete it. Reusing a label overwrites the previous mapping.',
+    ),
+  pin: z
+    .boolean()
+    .optional()
+    .describe('If true, pin the message after sending. Requires label.'),
+  upsert: z
+    .boolean()
+    .optional()
+    .describe(
+      'If true and label already exists, edit the existing message instead of posting a new one. Use for persistent status cards — one call handles both create and update.',
+    ),
+};
+if (petVoicesAllowed) {
+  sendMessageSchema.sender = z
+    .string()
+    .optional()
+    .describe(
+      'Pet name to speak as (e.g. "Voss", "Nyx", "Zima"). Message appears from the pet via webhook, not Claudio.',
+    );
+}
+
 server.tool(
   'send_message',
   "Send a message to the user or group immediately while you're still running. Optionally tag the message with a label so you can edit/pin/delete it later (e.g. a persistent status card). Optionally pin on send.",
-  {
-    text: z.string().describe('The message text to send'),
-    sender: z
-      .string()
-      .optional()
-      .describe(
-        'Pet name to speak as (e.g. "Voss", "Nyx", "Zima"). Message appears from the pet via webhook, not Claudio.',
-      ),
-    label: z
-      .string()
-      .optional()
-      .describe(
-        'Logical label to remember this message by (e.g. "status_card"). Required to later edit/pin/delete it. Reusing a label overwrites the previous mapping.',
-      ),
-    pin: z
-      .boolean()
-      .optional()
-      .describe('If true, pin the message after sending. Requires label.'),
-    upsert: z
-      .boolean()
-      .optional()
-      .describe(
-        'If true and label already exists, edit the existing message instead of posting a new one. Use for persistent status cards — one call handles both create and update.',
-      ),
-  },
+  sendMessageSchema,
   async (args) => {
+    const sender = petVoicesAllowed
+      ? ((args as { sender?: string }).sender ?? undefined)
+      : undefined;
     const data: Record<string, string | boolean | undefined> = {
       type: 'message',
       chatJid,
-      text: args.text,
-      sender: args.sender || undefined,
-      label: args.label,
-      pin: args.pin,
-      upsert: args.upsert,
+      text: args.text as string,
+      sender,
+      label: args.label as string | undefined,
+      pin: args.pin as boolean | undefined,
+      upsert: args.upsert as boolean | undefined,
       groupFolder,
       timestamp: new Date().toISOString(),
     };

@@ -346,7 +346,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           ? result.result
           : JSON.stringify(result.result);
       // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+      // Also strip a trailing [no-reply] — flash models sometimes append it to a
+      // real reply as a leftover habit from the silence rule. It should either be
+      // the entire response or absent; posting it as literal text leaks the marker.
+      const text = raw
+        .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+        .replace(/\s*\[no-reply\]\s*$/i, '')
+        .trim();
       logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
       // [no-reply] signals the agent chose silence — don't post anything
       if (text && text !== '[no-reply]') {

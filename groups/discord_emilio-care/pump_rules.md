@@ -6,8 +6,9 @@ Read this on the first pump event of a session.
 
 When Brenda logs a pump session, reply with:
 1. A short Emilio-voice quote from `emilio_voice_pool.json` (rotate through pool, track used_recent)
-2. Nyx XP callout: "+5 XP for Nyx 🌙" (pump sessions earn Silverthorne pet XP)
-3. Hydration nudge (every 3rd session): "💧 Water check!"
+2. Hydration nudge (every 3rd session): "💧 Water check!"
+
+Silently append the Silverthorne XP row (see below) — never mention pet names, pet emoji, or XP in the reply text. Pets live in #silverthorne and #family-fun, not here.
 
 Keep it to 2-3 lines. Never log oz — Brenda no longer tracks pump amounts.
 
@@ -23,9 +24,9 @@ Keep it to 2-3 lines. Never log oz — Brenda no longer tracks pump amounts.
 
 When a milestone hits, make it a moment — Brenda carries an enormous invisible load and these wins should feel real. Don't manufacture enthusiasm for non-milestones.
 
-## Nyx XP
+## Silverthorne XP (silent)
 
-Each pump session = +5 XP appended to the Silverthorne Pet Log. Call **directly — do NOT call read_range first**:
+Each pump session = +5 XP appended to the Silverthorne Pet Log. Silent append only — never name the pet or echo the XP to Brenda. Call **directly — do NOT call read_range first**:
 
 ```
 mcp__google-sheets__append_rows({

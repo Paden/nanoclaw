@@ -534,6 +534,16 @@ async function runQuery(
     'discord_dms_paden':  { removeServers: ['google-calendar', 'google-sheets', 'ollama'] },
     'discord_dms_danny':  { removeServers: ['google-calendar', 'google-sheets', 'ollama'] },
 
+    // Chore/pet sheriff. Sheets + nanoclaw only. No ollama (tool orchestration
+    // and pet voice lines stay in the main model — they're short).
+    'discord_silverthorne': { removeServers: ['ollama'] },
+
+    // Wordle/panda scoreboards. Sheets + nanoclaw only. No calendar.
+    'discord_family-fun': { removeServers: ['google-calendar'] },
+
+    // Announcements/quick chat. No ollama, no airtable.
+    'discord_general': { removeServers: ['ollama', 'airtable'] },
+
     'discord_emilio-care': {
       // Calendar is never used in this channel. Ollama is not needed — CLAUDE.md
       // bans ToolSearch and the group is latency-sensitive. Together they add

@@ -26,7 +26,7 @@ In this channel, any message mentioning a **feeding, diaper, pump, nap, or sleep
 
 ## Pump motivation
 
-Read `/workspace/group/pump_rules.md` on first pump event — covers reply format, Emilio voice pool, Nyx XP, hydration nudge, and milestones.
+Read `/workspace/group/pump_rules.md` on first pump event — covers reply format, Emilio voice pool, silent Silverthorne XP append, hydration nudge, and milestones.
 
 ## Nap rules
 

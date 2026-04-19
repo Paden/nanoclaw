@@ -17,6 +17,8 @@ groups/*/*
 !groups/*/*.md
 !groups/*/scripts/
 !groups/global/skills/
+# Auto-generated per-channel compaction summaries contain private chat — never commit
+groups/*/conversation_summary.md
 
 # Secrets
 *.keys.json

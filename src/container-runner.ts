@@ -71,6 +71,100 @@ interface VolumeMount {
   readonly: boolean;
 }
 
+// Pet lore is scoped to #silverthorne and #family-fun. Everywhere else (DMs
+// and other groups) gets a sanitized overlay of groups/global/ so the flash
+// model can't anchor on "Paden → Voss 🌋 volcanic" and start speaking in pet
+// voice. Two variants:
+//   DM overlay  — minimal: only workflow/style files 1:1 DMs need
+//   group overlay — broader: includes sheets/channel_map/etc for cross-channel
+//                  workflows, with pet-mention lines stripped on copy
+// Both regenerate every container spawn so host edits propagate.
+
+const DM_GLOBAL_ALLOWED_FILES = [
+  'CLAUDE.md',
+  'dms.md',
+  'date_time_convention.md',
+  'message_formatting.md',
+  'mcp_tools.md',
+  'communication.md',
+];
+const DM_GLOBAL_ALLOWED_DIRS = ['scripts', 'skills'];
+
+// Files omitted entirely from the non-pet group overlay — pure pet lore.
+const GROUP_GLOBAL_OMITTED_FILES = new Set(['soul.md', 'claudio-journal.md']);
+
+// Pattern matching any line mentioning a pet name or pet emoji. Used to
+// scrub individual lines from files copied into the group overlay.
+const PET_LINE_PATTERN = /Voss|Nyx|Zima|🌋|🌙|❄️/;
+
+function copyRecursive(src: string, dest: string): void {
+  const stat = fs.statSync(src);
+  if (stat.isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const entry of fs.readdirSync(src)) {
+      copyRecursive(path.join(src, entry), path.join(dest, entry));
+    }
+  } else if (stat.isFile()) {
+    fs.copyFileSync(src, dest);
+  }
+}
+
+function writeScrubbedFile(src: string, dest: string): void {
+  const content = fs.readFileSync(src, 'utf8');
+  const scrubbed = content
+    .split('\n')
+    .filter((line) => !PET_LINE_PATTERN.test(line))
+    .join('\n');
+  fs.writeFileSync(dest, scrubbed);
+}
+
+function buildDmGlobalOverlay(globalDir: string): string {
+  const overlayDir = path.join(DATA_DIR, 'dm-global-overlay');
+  fs.rmSync(overlayDir, { recursive: true, force: true });
+  fs.mkdirSync(overlayDir, { recursive: true });
+
+  for (const file of DM_GLOBAL_ALLOWED_FILES) {
+    const src = path.join(globalDir, file);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(overlayDir, file));
+    }
+  }
+  for (const dir of DM_GLOBAL_ALLOWED_DIRS) {
+    const src = path.join(globalDir, dir);
+    if (fs.existsSync(src)) {
+      copyRecursive(src, path.join(overlayDir, dir));
+    }
+  }
+  return overlayDir;
+}
+
+function buildGroupGlobalOverlay(globalDir: string): string {
+  const overlayDir = path.join(DATA_DIR, 'group-global-overlay');
+  fs.rmSync(overlayDir, { recursive: true, force: true });
+  fs.mkdirSync(overlayDir, { recursive: true });
+
+  for (const entry of fs.readdirSync(globalDir)) {
+    if (GROUP_GLOBAL_OMITTED_FILES.has(entry)) continue;
+    const src = path.join(globalDir, entry);
+    const dest = path.join(overlayDir, entry);
+    const stat = fs.statSync(src);
+    if (stat.isDirectory()) {
+      copyRecursive(src, dest);
+    } else if (stat.isFile()) {
+      if (entry.endsWith('.md')) {
+        writeScrubbedFile(src, dest);
+      } else {
+        fs.copyFileSync(src, dest);
+      }
+    }
+  }
+  return overlayDir;
+}
+
+// Channels where pet lore is allowed and pet voices can speak. Every other
+// non-main group gets a sanitized overlay.
+const PET_CHANNELS = new Set(['discord_silverthorne', 'discord_family-fun']);
+
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
@@ -135,12 +229,24 @@ function buildVolumeMounts(
       readonly: false,
     });
 
-    // Global memory directory (read-only for non-main)
-    // Only directory mounts are supported, not file mounts
+    // Global memory directory (read-only for non-main).
+    // Pet channels (silverthorne, family-fun) get the full global dir — they
+    // need pet lore. DMs get a minimal overlay, other groups get a broader
+    // overlay with pet-mention lines scrubbed.
     const globalDir = path.join(GROUPS_DIR, 'global');
-    if (fs.existsSync(globalDir)) {
+    const isDm = group.folder.startsWith('discord_dms_');
+    const isPetChannel = PET_CHANNELS.has(group.folder);
+    let effectiveGlobalDir: string;
+    if (isPetChannel) {
+      effectiveGlobalDir = globalDir;
+    } else if (isDm) {
+      effectiveGlobalDir = buildDmGlobalOverlay(globalDir);
+    } else {
+      effectiveGlobalDir = buildGroupGlobalOverlay(globalDir);
+    }
+    if (fs.existsSync(effectiveGlobalDir)) {
       mounts.push({
-        hostPath: globalDir,
+        hostPath: effectiveGlobalDir,
         containerPath: '/workspace/global',
         readonly: true,
       });

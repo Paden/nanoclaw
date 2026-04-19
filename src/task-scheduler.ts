@@ -363,6 +363,7 @@ async function runTask(
           // sentinel gets posted to the channel.
           const filtered = streamedOutput.result
             .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+            .replace(/\s*\[no-reply\]\s*$/i, '')
             .trim();
           if (filtered && filtered !== '[no-reply]') {
             await deps.sendMessage(task.chat_jid, filtered);
