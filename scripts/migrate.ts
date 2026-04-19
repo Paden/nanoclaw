@@ -147,6 +147,17 @@ function checkRemoteCommand(creds: SshCreds, cmd: string): boolean {
   return (result.stdout ?? '').trim() === 'ok';
 }
 
+function localOnecliJson<T>(args: string[]): T {
+  const result = spawnSync('onecli', args, { encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new MigrateError(
+      `onecli ${args.join(' ')} failed`,
+      `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim(),
+    );
+  }
+  return JSON.parse(result.stdout ?? '{}') as T;
+}
+
 // ─── Step runner ──────────────────────────────────────────────────────────────
 
 interface StepSummary {
@@ -332,8 +343,91 @@ async function main() {
     summaries,
   );
 
-  outro('Connected! Continuing with migration steps...');
-  // More steps will be added in subsequent tasks
+  // ── Step 7: Set up OneCLI ─────────────────────────────────────────────────────
+  await runStep(
+    'Set up OneCLI on server',
+    async () => {
+      // Install OneCLI gateway and CLI on server
+      runRemote(
+        creds,
+        'curl -fsSL onecli.sh/install | sh && curl -fsSL onecli.sh/cli/install | sh',
+      );
+      // Ensure ~/.local/bin is in PATH for subsequent remote commands
+      runRemote(creds, 'export PATH="$HOME/.local/bin:$PATH" && onecli version');
+
+      // Determine the port OneCLI listens on by checking local ONECLI_URL
+      const localOnecliUrl = process.env.ONECLI_URL || 'http://127.0.0.1:10254';
+      const onecliPort = new URL(localOnecliUrl).port || '10254';
+      const remoteOnecliUrl = `http://127.0.0.1:${onecliPort}`;
+
+      // Point the remote onecli CLI at its local instance
+      runRemote(
+        creds,
+        `export PATH="$HOME/.local/bin:$PATH" && onecli config set api-host ${remoteOnecliUrl}`,
+      );
+
+      // Wait for the gateway to become healthy (up to 15s)
+      runRemote(
+        creds,
+        `for i in $(seq 1 15); do curl -sf ${remoteOnecliUrl}/health && break; sleep 1; done`,
+      );
+
+      // Get local secrets list (metadata only — values are NOT exposed)
+      type SecretMeta = {
+        name: string;
+        type: string;
+        hostPattern: string;
+        pathPattern?: string | null;
+        injectionConfig?: { headerName?: string; valueFormat?: string } | null;
+      };
+      const { data: secrets } = localOnecliJson<{ data: SecretMeta[] }>(['secrets', 'list']);
+
+      log.info(`Found ${secrets.length} secret(s) to migrate. You will be prompted for each value.`);
+      for (const secret of secrets) {
+        log.info(`Secret: "${secret.name}" (type: ${secret.type}, host: ${secret.hostPattern})`);
+        const value = await password({ message: `Enter value for "${secret.name}":` });
+        if (typeof value !== 'string' || !value.trim()) {
+          log.warn(`Skipping "${secret.name}" — no value entered.`);
+          continue;
+        }
+        // Build create command
+        const args = [
+          'secrets',
+          'create',
+          '--name',
+          secret.name,
+          '--type',
+          secret.type,
+          '--value',
+          value.trim(),
+          '--host-pattern',
+          secret.hostPattern,
+        ];
+        if (secret.pathPattern) args.push('--path-pattern', secret.pathPattern);
+        if (secret.injectionConfig?.headerName)
+          args.push('--header-name', secret.injectionConfig.headerName);
+        if (secret.injectionConfig?.valueFormat)
+          args.push('--value-format', secret.injectionConfig.valueFormat);
+
+        // Run the create command on the remote server via SSH
+        const escapedArgs = args.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+        runRemote(
+          creds,
+          `export PATH="$HOME/.local/bin:$PATH" && onecli ${escapedArgs}`,
+        );
+        log.success(`Migrated secret: "${secret.name}"`);
+      }
+
+      // Patch ONECLI_URL in remote .env
+      runRemote(
+        creds,
+        `sed -i 's|^ONECLI_URL=.*|ONECLI_URL=${remoteOnecliUrl}|' ${creds.remoteProjectPath}/.env`,
+      );
+      log.success(`ONECLI_URL set to ${remoteOnecliUrl} in remote .env`);
+    },
+    summaries,
+  );
+
   finish(summaries);
 }
 
