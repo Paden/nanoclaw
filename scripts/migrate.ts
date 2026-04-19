@@ -507,15 +507,46 @@ async function main() {
     summaries,
   );
 
+  // ── Step 12: Start service and verify ─────────────────────────────────────────
+  await runStep(
+    'Start nanoclaw service and check logs',
+    () => {
+      runRemote(creds, 'systemctl --user start nanoclaw');
+      // Tail logs for a few seconds to check for startup errors
+      const logs = runRemote(
+        creds,
+        `sleep 3 && journalctl --user -u nanoclaw -n 20 --no-pager 2>/dev/null || tail -20 ${creds.remoteProjectPath}/logs/nanoclaw.log 2>/dev/null || echo "(no logs yet)"`,
+      );
+      log.info('Recent logs:\n' + logs);
+      // Check if the service is running
+      const status = runRemote(
+        creds,
+        'systemctl --user is-active nanoclaw 2>/dev/null || echo inactive',
+      ).trim();
+      if (status !== 'active') {
+        throw new MigrateError(
+          `Service not active (status: ${status})`,
+          'Check logs above for errors.',
+        );
+      }
+    },
+    summaries,
+  );
+
   finish(summaries);
 }
 
 function finish(summaries: StepSummary[]): void {
   const lines = summaries.map((s) => {
     const icon = s.result === 'completed' ? '✓' : s.result === 'skipped' ? '⚠' : '✗';
-    return `  ${icon} ${s.label}`;
+    return `  ${icon} ${s.label} — ${s.result}`;
   });
-  outro(`Migration complete.\n${lines.join('\n')}`);
+  const skipped = summaries.filter((s) => s.result === 'skipped').length;
+  const tip =
+    skipped > 0
+      ? '\nTip: Re-run the wizard to retry skipped steps — rsync/scp/systemd are safe to re-run.'
+      : '';
+  outro(`Migration summary:\n${lines.join('\n')}${tip}`);
 }
 
 main().catch((err) => {
