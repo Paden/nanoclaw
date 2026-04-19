@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   SshCreds,
   MigrateError,
@@ -7,8 +7,6 @@ import {
   buildBashrcBlock,
   needsBashrcUpdate,
 } from './migrate.js';
-
-vi.mock('child_process');
 
 const creds: SshCreds = {
   host: 'myserver.local',
@@ -49,6 +47,13 @@ describe('buildSystemdUnit', () => {
     const unit = buildSystemdUnit('/usr/bin/node', '/home/paden/nanoclaw');
     expect(unit).not.toContain('PROJECT_ROOT');
     expect(unit).not.toContain('NODE_PATH');
+  });
+
+  it('handles projectRoot that contains NODE_PATH in its path', () => {
+    const unit = buildSystemdUnit('/usr/bin/node', '/home/NODE_PATH/nanoclaw');
+    expect(unit).toContain('WorkingDirectory=/home/NODE_PATH/nanoclaw');
+    expect(unit).toContain('ExecStart=/usr/bin/node /home/NODE_PATH/nanoclaw/dist/index.js');
+    expect(unit).not.toContain('PROJECT_ROOT');
   });
 });
 

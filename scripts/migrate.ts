@@ -48,9 +48,9 @@ WantedBy=default.target
 `;
 
 export function buildSystemdUnit(nodePath: string, projectRoot: string): string {
-  return SYSTEMD_UNIT_TEMPLATE.replaceAll('PROJECT_ROOT', projectRoot).replace(
-    'NODE_PATH',
-    nodePath,
+  return SYSTEMD_UNIT_TEMPLATE.replace(
+    /PROJECT_ROOT|NODE_PATH/g,
+    (token) => (token === 'PROJECT_ROOT' ? projectRoot : nodePath),
   );
 }
 
@@ -78,11 +78,12 @@ function runRemote(creds: SshCreds, command: string): string {
     [...buildSshArgs(creds), `${creds.user}@${creds.host}`, command],
     { encoding: 'utf8' },
   );
-  if (result.status !== 0) {
-    throw new MigrateError(
-      `Remote command failed: ${command}`,
-      `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim(),
-    );
+  const output = [result.error?.message, result.stdout, result.stderr]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  if (result.status !== 0 || result.error) {
+    throw new MigrateError(`Remote command failed: ${command}`, output);
   }
   return result.stdout ?? '';
 }
@@ -94,7 +95,8 @@ function rsyncTo(
   excludes: string[] = [],
 ): void {
   const excludeArgs = excludes.flatMap((e) => ['--exclude', e]);
-  const sshCmd = `ssh ${buildSshArgs(creds).join(' ')}`;
+  const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  const sshCmd = `ssh ${buildSshArgs(creds).map(shellQuote).join(' ')}`;
   const result = spawnSync(
     'rsync',
     [
@@ -108,11 +110,12 @@ function rsyncTo(
     ],
     { encoding: 'utf8' },
   );
-  if (result.status !== 0) {
-    throw new MigrateError(
-      'rsync failed',
-      `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim(),
-    );
+  const rsyncOutput = [result.error?.message, result.stdout, result.stderr]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  if (result.status !== 0 || result.error) {
+    throw new MigrateError('rsync failed', rsyncOutput);
   }
 }
 
@@ -122,8 +125,12 @@ function scpTo(creds: SshCreds, localPath: string, remotePath: string): void {
     ['-r', ...buildSshArgs(creds), localPath, `${creds.user}@${creds.host}:${remotePath}`],
     { encoding: 'utf8' },
   );
-  if (result.status !== 0) {
-    throw new MigrateError('scp failed', `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim());
+  const scpOutput = [result.error?.message, result.stdout, result.stderr]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  if (result.status !== 0 || result.error) {
+    throw new MigrateError('scp failed', scpOutput);
   }
 }
 
