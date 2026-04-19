@@ -186,7 +186,71 @@ async function runStep(
 
 async function main() {
   intro('NanoClaw → Ubuntu Migration Wizard');
-  outro('Done!');
+
+  const summaries: StepSummary[] = [];
+
+  // ── Step 1: Collect SSH credentials ─────────────────────────────────────────
+  log.step('Collecting SSH credentials');
+
+  const host = await text({ message: 'Server hostname or IP:', placeholder: '192.168.1.100' });
+  if (typeof host !== 'string') process.exit(0);
+
+  const portRaw = await text({ message: 'SSH port:', placeholder: '22', initialValue: '22' });
+  if (typeof portRaw !== 'string') process.exit(0);
+  const port = parseInt(portRaw, 10) || 22;
+
+  const user = await text({ message: 'SSH username:', placeholder: 'ubuntu' });
+  if (typeof user !== 'string') process.exit(0);
+
+  const keyFile = await text({
+    message: 'Path to SSH private key (leave blank for password auth — requires sshpass):',
+    placeholder: `${process.env.HOME}/.ssh/id_ed25519`,
+  });
+  if (typeof keyFile !== 'string') process.exit(0);
+
+  const remoteProjectPath = await text({
+    message: 'Remote path to install NanoClaw:',
+    placeholder: `/home/${user}/nanoclaw`,
+    initialValue: `/home/${user}/nanoclaw`,
+  });
+  if (typeof remoteProjectPath !== 'string') process.exit(0);
+
+  const creds: SshCreds = {
+    host,
+    port,
+    user,
+    keyFile: keyFile.trim() || undefined,
+    remoteProjectPath,
+  };
+
+  if (!creds.keyFile) {
+    log.warn(
+      'No key file provided. Password auth requires sshpass (not installed by default on macOS). ' +
+        'Key-based auth is strongly recommended.',
+    );
+  }
+
+  // ── Step 2: Verify SSH connection ────────────────────────────────────────────
+  const cont = await runStep(
+    'Verify SSH connection',
+    () => {
+      runRemote(creds, 'echo ok');
+    },
+    summaries,
+  );
+  if (!cont) return finish(summaries);
+
+  outro('Connected! Continuing with migration steps...');
+  // More steps will be added in subsequent tasks
+  finish(summaries);
+}
+
+function finish(summaries: StepSummary[]): void {
+  const lines = summaries.map((s) => {
+    const icon = s.result === 'completed' ? '✓' : s.result === 'skipped' ? '⚠' : '✗';
+    return `  ${icon} ${s.label}`;
+  });
+  outro(`Migration complete.\n${lines.join('\n')}`);
 }
 
 main().catch((err) => {
