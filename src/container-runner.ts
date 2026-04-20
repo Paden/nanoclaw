@@ -119,8 +119,15 @@ function writeScrubbedFile(src: string, dest: string): void {
   fs.writeFileSync(dest, scrubbed);
 }
 
-function buildDmGlobalOverlay(globalDir: string): string {
-  const overlayDir = path.join(DATA_DIR, 'dm-global-overlay');
+// Overlays are namespaced by group folder so that rebuilding one group's
+// overlay never stomps on another group's bind-mounted inode. When rmSync
+// ran on a shared path while a sibling container was still holding the
+// mount, the sibling's inode got orphaned and new containers racing the
+// mkdir could briefly see an empty directory. Per-group paths eliminate
+// both hazards: each group only ever touches its own overlay, and existing
+// containers keep their mounted inode until they exit.
+function buildDmGlobalOverlay(globalDir: string, groupFolder: string): string {
+  const overlayDir = path.join(DATA_DIR, 'dm-global-overlay', groupFolder);
   fs.rmSync(overlayDir, { recursive: true, force: true });
   fs.mkdirSync(overlayDir, { recursive: true });
 
@@ -139,8 +146,11 @@ function buildDmGlobalOverlay(globalDir: string): string {
   return overlayDir;
 }
 
-function buildGroupGlobalOverlay(globalDir: string): string {
-  const overlayDir = path.join(DATA_DIR, 'group-global-overlay');
+function buildGroupGlobalOverlay(
+  globalDir: string,
+  groupFolder: string,
+): string {
+  const overlayDir = path.join(DATA_DIR, 'group-global-overlay', groupFolder);
   fs.rmSync(overlayDir, { recursive: true, force: true });
   fs.mkdirSync(overlayDir, { recursive: true });
 
@@ -241,9 +251,9 @@ function buildVolumeMounts(
     if (isPetChannel) {
       effectiveGlobalDir = globalDir;
     } else if (isDm) {
-      effectiveGlobalDir = buildDmGlobalOverlay(globalDir);
+      effectiveGlobalDir = buildDmGlobalOverlay(globalDir, group.folder);
     } else {
-      effectiveGlobalDir = buildGroupGlobalOverlay(globalDir);
+      effectiveGlobalDir = buildGroupGlobalOverlay(globalDir, group.folder);
     }
     if (fs.existsSync(effectiveGlobalDir)) {
       mounts.push({
