@@ -21,21 +21,88 @@ function log(msg: string): void {
 
 const server = new McpServer({ name: 'google-sheets', version: '1.0.0' });
 
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 500;
+const MAX_BYTES = 50_000;
+
+type Row = (string | number | boolean | null)[];
+
+export function paginateRows(
+  allRows: Row[],
+  offset: number,
+  limit: number,
+): {
+  rows: Row[];
+  totalRows: number;
+  offset: number;
+  limit: number;
+  truncated: boolean;
+  nextOffset?: number;
+} {
+  const safeOffset = Math.max(0, Math.floor(offset));
+  const safeLimit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(limit)));
+  const totalRows = allRows.length;
+  let slice = allRows.slice(safeOffset, safeOffset + safeLimit);
+  // Hard byte cap: shrink slice until JSON fits under MAX_BYTES. Large rows
+  // can still blow the limit even with small counts, so trim by one.
+  while (slice.length > 1 && JSON.stringify(slice).length > MAX_BYTES) {
+    slice = slice.slice(0, slice.length - 1);
+  }
+  const returned = slice.length;
+  const truncated = safeOffset + returned < totalRows;
+  const result: {
+    rows: Row[];
+    totalRows: number;
+    offset: number;
+    limit: number;
+    truncated: boolean;
+    nextOffset?: number;
+  } = {
+    rows: slice,
+    totalRows,
+    offset: safeOffset,
+    limit: safeLimit,
+    truncated,
+  };
+  if (truncated) result.nextOffset = safeOffset + returned;
+  return result;
+}
+
 server.tool(
   'read_range',
-  'Read a range from a Google Sheet. Returns rows as a 2D array. Example range: "Sheet1!A2:D100".',
+  `Read a range from a Google Sheet with pagination. Returns { rows, totalRows, offset, limit, truncated, nextOffset? }. Default limit is ${DEFAULT_LIMIT} rows; max ${MAX_LIMIT}. Response is hard-capped at ~${Math.round(MAX_BYTES / 1000)}KB. For large tabs, narrow the A1 range (e.g. "Feedings!A500:C600") or paginate via offset/limit. Example range: "Sheet1!A2:D100".`,
   {
     sheet_id: z.string().describe('The spreadsheet ID from the URL'),
     range: z.string().describe('A1 notation range, e.g. "Tab!A:Z"'),
+    offset: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe('Row offset into the returned range (0-based). Default 0.'),
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        `Max rows to return. Default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}.`,
+      ),
   },
-  async ({ sheet_id, range }) => {
-    log(`read_range ${sheet_id} ${range}`);
+  async ({ sheet_id, range, offset, limit }) => {
+    const off = offset ?? 0;
+    const lim = limit ?? DEFAULT_LIMIT;
+    log(`read_range ${sheet_id} ${range} offset=${off} limit=${lim}`);
     try {
-      const rows = await readRange(sheet_id, range);
-      return { content: [{ type: 'text', text: JSON.stringify(rows) }] };
+      const rows = (await readRange(sheet_id, range)) as Row[];
+      const paged = paginateRows(rows, off, lim);
+      return { content: [{ type: 'text', text: JSON.stringify(paged) }] };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { content: [{ type: 'text', text: `ERROR: ${msg}` }], isError: true };
+      return {
+        content: [{ type: 'text', text: `ERROR: ${msg}` }],
+        isError: true,
+      };
     }
   },
 );
