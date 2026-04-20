@@ -1,22 +1,14 @@
 # Google Sheets — canonical IDs and purpose
 
-All Portillo family data lives in three Google Sheets, authenticated as padenportillo@gmail.com via the utility library at `/workspace/global/scripts/lib/sheets.mjs`. These IDs are the source of truth — don't create duplicates.
+All Portillo family data lives in three Google Sheets, authenticated as padenportillo@gmail.com. These IDs are the source of truth — don't create duplicates.
 
 ## How to access sheets
 
-Use the utility library via Bash:
+Use the `mcp__google-sheets__*` tools. See `/workspace/global/mcp_tools.md` for exact call shapes (`read_range` with `offset`/`limit` pagination, `append_rows`, `update_range`).
 
-```js
-import { getAccessToken, readRange, appendRows } from '/workspace/global/scripts/lib/sheets.mjs';
+**NEVER** use `node -e` / `node --input-type=module` heredocs to call `sheets.mjs` directly — it pipes unbounded JSON through tool output and bloats context. MCP tools have pagination and size caps built in.
 
-// Read
-const rows = await readRange('SHEET_ID', 'Tab!A:Z');
-
-// Append
-await appendRows('SHEET_ID', 'Tab!A:Z', [['col1', 'col2', ...]]);
-```
-
-Run with: `node --input-type=module -e "..."`
+Bounded task scripts (e.g. `build_status_card.mjs`, `open_sleep.mjs`) that produce small, fixed output are still fine to run via Bash.
 
 ## Emilio Tracking
 
