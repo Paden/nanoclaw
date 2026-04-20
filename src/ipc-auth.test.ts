@@ -13,6 +13,7 @@ import {
   IpcDeps,
   decideMessageAction,
   resolvePetIdentity,
+  stripNoReplySuffix,
   todayDate,
 } from './ipc.js';
 import { GROUPS_DIR } from './config.js';
@@ -892,5 +893,36 @@ describe('resolvePetIdentity', () => {
     const result = resolvePetIdentity('Voss', TEST_GROUP);
     expect(result?.name).toContain('Voss'); // baseline still used
     cleanup();
+  });
+});
+
+describe('stripNoReplySuffix', () => {
+  it('strips a trailing [no-reply] appended to a real reply', () => {
+    const input =
+      'You say "no bite," but I\'m looking at the Pet Log. 🌋\n\n[no-reply]';
+    expect(stripNoReplySuffix(input)).toBe(
+      'You say "no bite," but I\'m looking at the Pet Log. 🌋',
+    );
+  });
+
+  it('strips with no leading whitespace', () => {
+    expect(stripNoReplySuffix('real reply[no-reply]')).toBe('real reply');
+  });
+
+  it('is case-insensitive', () => {
+    expect(stripNoReplySuffix('real reply [NO-REPLY]')).toBe('real reply');
+  });
+
+  it('returns empty when text is only [no-reply]', () => {
+    expect(stripNoReplySuffix('[no-reply]')).toBe('');
+    expect(stripNoReplySuffix('   [no-reply]  ')).toBe('');
+  });
+
+  it('leaves text alone when no marker present', () => {
+    expect(stripNoReplySuffix('hello world')).toBe('hello world');
+  });
+
+  it('does not strip [no-reply] in the middle of text', () => {
+    expect(stripNoReplySuffix('a [no-reply] b')).toBe('a [no-reply] b');
   });
 });

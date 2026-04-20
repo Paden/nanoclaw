@@ -101,7 +101,14 @@ describe('determineWinner', () => {
     ]);
     expect(w).toBe('Brenda');
   });
-  it('breaks ties by earliest solved_at', () => {
+  it('breaks ties by earliest solved_row_index', () => {
+    const w = determineWinner([
+      { player: 'Brenda', guesses: 3, solved: true, solved_row_index: 7 },
+      { player: 'Danny', guesses: 3, solved: true, solved_row_index: 2 },
+    ]);
+    expect(w).toBe('Danny');
+  });
+  it('falls back to solved_at when row indices are missing', () => {
     const w = determineWinner([
       { player: 'Paden', guesses: 3, solved: true, solved_at: '2026-04-07 11:00:00' },
       { player: 'Brenda', guesses: 3, solved: true, solved_at: '2026-04-07 10:00:00' },

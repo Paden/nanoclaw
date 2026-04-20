@@ -81,15 +81,20 @@ export function isValidGuessShape(guess, length) {
 
 /**
  * Determine the winner of the day. Entries:
- *   [{ player, guesses, solved, solved_at }]
- * Rules: fewest guesses among solvers wins. Tie → earliest solved_at.
- * Nobody solved → null. Disqualified players should be filtered out before calling.
+ *   [{ player, guesses, solved, solved_row_index?, solved_at? }]
+ * Rules: fewest guesses among solvers wins. Tie → earliest solved_row_index
+ * (append order in Wordle State, which reflects real submission order), then
+ * solved_at as a fallback. Nobody solved → null. Disqualified players should
+ * be filtered out before calling.
  */
 export function determineWinner(entries) {
   const solvers = entries.filter((e) => e.solved);
   if (solvers.length === 0) return null;
   solvers.sort((a, b) => {
     if (a.guesses !== b.guesses) return a.guesses - b.guesses;
+    const ia = Number.isFinite(a.solved_row_index) ? a.solved_row_index : Number.MAX_SAFE_INTEGER;
+    const ib = Number.isFinite(b.solved_row_index) ? b.solved_row_index : Number.MAX_SAFE_INTEGER;
+    if (ia !== ib) return ia - ib;
     const ta = a.solved_at || '';
     const tb = b.solved_at || '';
     return ta.localeCompare(tb);

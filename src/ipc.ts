@@ -182,6 +182,13 @@ function isAuthorized(
   return !!(g && g.folder === sourceGroup);
 }
 
+// Strip a trailing [no-reply] from IPC message text. Agents occasionally
+// append it as a habit leftover from the silence rule; posting leaks the
+// marker. Exported for tests.
+export function stripNoReplySuffix(text: string): string {
+  return text.replace(/\s*\[no-reply\]\s*$/i, '').trim();
+}
+
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
     logger.debug('IPC watcher already running, skipping duplicate start');
@@ -239,6 +246,15 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   'Unauthorized IPC message attempt blocked',
                 );
               } else if (data.type === 'message' && jid && data.text) {
+                data.text = stripNoReplySuffix(data.text);
+                if (!data.text) {
+                  try {
+                    fs.unlinkSync(filePath);
+                  } catch {
+                    /* ignore */
+                  }
+                  continue;
+                }
                 // Pet voice: route through webhook when sender matches a pet.
                 // Per-group pet_avatars.json overrides baseline PET_IDENTITIES
                 // (lets agents update avatars at evolution without a restart).

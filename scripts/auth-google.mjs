@@ -31,7 +31,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/spreadsheets',
 ];
-const PORT = 3000;
+const PORT = Number(process.env.AUTH_PORT || 3000);
 const REDIRECT = `http://localhost:${PORT}`;
 
 const keys = JSON.parse(fs.readFileSync(KEYS_PATH, 'utf8')).installed;
@@ -105,9 +105,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
+  console.log('If the browser did not open, paste this URL:\n', authUrl, '\n');
   try {
     execSync(`open "${authUrl}"`, { stdio: 'ignore' });
   } catch {
-    console.log('Open this URL manually:\n', authUrl);
+    /* URL already logged above */
   }
 });

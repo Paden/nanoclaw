@@ -105,6 +105,19 @@ describe('scoreGuessForPlayer', () => {
     expect(r.guess_num).toBe(7);
   });
 
+  it('rejects duplicate guesses and does not append a new row', async () => {
+    const append = vi.fn().mockResolvedValue({});
+    const stateRows = [
+      [TODAY, 'Paden', 1, 'IRATE', '⬜🟨🟨⬜⬜', 'false'],
+    ];
+    const deps = makeDeps({ stateRows, append });
+    const r = await scoreGuessForPlayer('Paden', 'irate', deps);
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe('duplicate');
+    expect(r.guesses).toBe(1);
+    expect(append).not.toHaveBeenCalled();
+  });
+
   it('returns no_puzzle when today row is missing', async () => {
     const readRangeFn = vi.fn().mockResolvedValue([]);
     const r = await scoreGuessForPlayer('Paden', 'irate', {

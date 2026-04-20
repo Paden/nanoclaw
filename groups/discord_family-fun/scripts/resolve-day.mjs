@@ -103,9 +103,10 @@ export async function resolveDay(deps = {}) {
     const played = mine.length > 0;
     const solved = !!solvedRow;
     const guesses = mine.length;
-    // Approximate solved_at from the row's implicit position — if the
-    // sheet stored a timestamp col we'd read it; here we use guess number
-    // as a tiebreaker proxy (fewer guesses already wins, tie → player order).
+    // Tiebreak proxy: absolute row position in Wordle State reflects the
+    // real append order (score-guess.mjs writes synchronously on submit),
+    // so earlier row = earlier submission. Better than faking solved_at.
+    const solvedRowIndex = solvedRow ? todays.indexOf(solvedRow) : Number.MAX_SAFE_INTEGER;
     return {
       player,
       pet,
@@ -113,6 +114,7 @@ export async function resolveDay(deps = {}) {
       solved,
       guesses,
       budget,
+      solved_row_index: solvedRowIndex,
       solved_at: solvedRow ? `${today} guess${solvedRow[2]}` : null,
     };
   });

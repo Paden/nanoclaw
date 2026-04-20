@@ -113,6 +113,19 @@ export async function scoreGuessForPlayer(player, rawGuess, deps = {}) {
     };
   }
 
+  // Dedup: repeating a guess yields no information, so block it. This also
+  // prevents agent cold-start retries or placeholder inputs (e.g. HELLO) from
+  // silently burning the player's budget.
+  if (mine.some((r) => String(r[3] || '').toLowerCase() === guess)) {
+    return {
+      ok: false,
+      status: 'duplicate',
+      message: `You already tried "${guess.toUpperCase()}" today — pick a different word.`,
+      budget,
+      guesses: usedCount,
+    };
+  }
+
   // 4. Score
   const grid = scoreGuess(guess, word);
   const solved = guess === word;
