@@ -4,22 +4,31 @@ These MCP servers are mounted into every group's container (unless noted). Prefe
 
 ## `mcp__google-sheets__*` — Google Sheets
 
-Authenticated as padenportillo@gmail.com via Application Default Credentials. Read and write the three family sheets listed in `/workspace/global/sheets.md`.
+Authenticated as padenportillo@gmail.com via OAuth tokens shared with calendar-mcp. Read and write the three family sheets listed in `/workspace/global/sheets.md`.
 
-**Use for:** reading/writing rows, creating tabs (only if needed), formatting columns, querying ranges.
-**Don't use for:** creating new spreadsheets — the canonical three already exist; never duplicate them.
+**Use for:** reading rows, appending rows, overwriting ranges.
+**Don't use for:** creating new spreadsheets or tabs — the canonical three already exist; never duplicate them. If you need a new tab, ask a human.
 **Timestamp rule:** every timestamp value follows `/workspace/global/date_time_convention.md` (`YYYY-MM-DD HH:MM:SS` in America/Chicago, no `T`, no `Z`).
-**Reading dates:** request `valueRenderOption=FORMATTED_VALUE` so cells come back as strings, not serial numbers.
 
-**Call shape (don't guess — these are exact):**
+**Exact call shapes — don't guess:**
 
-- `get_sheet_data({ spreadsheet_id, sheet, range? })` — the tab arg is **`sheet`**, NOT `sheet_name`. `range` is optional A1 (e.g. `"A:C"`), no `"Sheet!"` prefix.
-- `update_cells({ spreadsheet_id, sheet, range, data })` — `data` is a 2D array.
-- `batch_update_cells({ spreadsheet_id, sheet, ranges })` — `ranges` is `{ "A1:B2": [[...]], ... }`.
-- `list_sheets({ spreadsheet_id })` — returns tab names.
-- `create_sheet({ spreadsheet_id, title })` — new tab in existing spreadsheet.
+- `read_range({ sheet_id, range, offset?, limit? })` — read a range with pagination.
+  - `sheet_id`: spreadsheet ID (from the URL).
+  - `range`: A1 notation with tab prefix, e.g. `"Feedings!A:C"` or `"Diaper Changes!A500:B600"`.
+  - `offset`: row offset into the returned range (0-based). Default `0`.
+  - `limit`: max rows to return. Default `100`, max `500`.
+  - Returns `{ rows, totalRows, offset, limit, truncated, nextOffset? }`. Response is hard-capped at ~50KB — if `truncated: true`, paginate via `nextOffset` or narrow the A1 range.
+  - **Large tabs:** narrow the A1 range (`"Feedings!A500:C600"`) rather than pulling the whole column and paginating. Fewer rows per call = less context.
 
-If a call returns an arg-shape error, **stop and re-read this list** before retrying. Do not guess parameter names.
+- `append_rows({ sheet_id, range, values })` — append rows to the bottom of a range.
+  - `values`: 2D array, e.g. `[["2026-04-20 09:00:00", "wet"]]`.
+  - `range`: A1 like `"Diaper Changes!A:B"`.
+
+- `update_range({ sheet_id, range, values })` — overwrite a range with the given 2D array.
+
+If a call returns an arg-shape error, **stop and re-read this list** before retrying. Do not guess parameter names. The params are `sheet_id` (not `spreadsheet_id`), `range` includes the tab prefix (not a separate `sheet` arg), and the values arg is `values` (not `data`).
+
+**NEVER** use `node -e` / `node --input-type=module` to call `sheets.mjs` directly — it dumps unbounded JSON through tool output and bloats context. Use these MCP tools instead.
 
 ## `mcp__claude_ai_Google_Calendar__*` — Google Calendar
 
