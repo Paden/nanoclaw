@@ -442,12 +442,32 @@ async function runQuery(
   // cumulative sum across turns, which inflates linearly and causes false alerts.
   let peakPerCallInputTokens = 0;
 
-  // Load global CLAUDE.md as additional system context (shared across all groups)
-  const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
-  let globalClaudeMd: string | undefined;
-  if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
-    globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
-  }
+  // Load global CLAUDE.md as additional system context (shared across all groups).
+  // Reference docs that agents would otherwise re-Read on every session (sheets.md,
+  // date_time_convention.md) are concatenated here so they live in the (cacheable)
+  // system prompt instead of piling up as tool_result blocks in messages[]. Measured:
+  // sheets.md was being Read 61×, date_time_convention.md 39× across recent sessions.
+  // To revert: remove the auto-appended references and re-add them to the "read on
+  // demand" list in groups/global/CLAUDE.md.
+  const globalClaudeMd = (() => {
+    if (containerInput.isMain) return undefined;
+    const parts: string[] = [];
+    const load = (p: string, heading?: string) => {
+      if (!fs.existsSync(p)) return;
+      const body = fs.readFileSync(p, 'utf-8');
+      parts.push(heading ? `${heading}\n\n${body}` : body);
+    };
+    load('/workspace/global/CLAUDE.md');
+    load(
+      '/workspace/global/sheets.md',
+      '# Reference: Google Sheets (auto-loaded — do NOT Read this file)',
+    );
+    load(
+      '/workspace/global/date_time_convention.md',
+      '# Reference: Date/time convention (auto-loaded — do NOT Read this file)',
+    );
+    return parts.length > 0 ? parts.join('\n\n---\n\n') : undefined;
+  })();
 
   // Discover additional directories mounted at /workspace/extra/*
   // These are passed to the SDK so their CLAUDE.md files are loaded automatically

@@ -43,9 +43,11 @@ Inbound reactions arrive in your context as `[reaction:add] 👍 by ...` — tha
 
 Use `ollama_generate` (model: **qwen3:8b**) for long replies, summaries, and creative content. Keep tool orchestration and short confirmations for yourself. Include channel context in the system prompt.
 
-## Reference files — read on demand
+## Reference files
 
-`/workspace/global/`: `sheets.md`, `mcp_tools.md`, `date_time_convention.md`, `communication.md`, `message_formatting.md`, `channel_map.md`, `task_scripts.md`, `cron_defaults.md`, `skills/agent-browser.md`. Read when needed, not at startup.
+Auto-loaded into this system prompt (do NOT Read — content is already above): `sheets.md`, `date_time_convention.md`.
+
+Read on demand from `/workspace/global/`: `mcp_tools.md`, `communication.md`, `message_formatting.md`, `channel_map.md`, `task_scripts.md`, `cron_defaults.md`, `skills/agent-browser.md`. Read when needed, not at startup.
 
 ## Don't cry wolf
 
