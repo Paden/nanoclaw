@@ -610,13 +610,28 @@ async function runAgent(
         const overmindJid = Object.entries(registeredGroups).find(
           ([, g]) => g.folder === 'discord_overmind',
         )?.[0];
-        if (overmindJid) {
-          const ch = findChannel(channels, overmindJid);
-          const tokensK = Math.round(peakInputTokens / 1000);
-          const msg = `📦 **Compaction** — \`${group.folder}\` hit ${tokensK}K tokens → session reset (${result.summaryWords}-word summary saved)`;
-          ch?.sendMessage(overmindJid, msg).catch((err) =>
-            logger.warn({ err }, 'Failed to send compaction notification'),
+        if (!overmindJid) {
+          logger.warn(
+            { group: group.folder },
+            'Compaction notification skipped: discord_overmind not registered',
           );
+        } else {
+          const ch = findChannel(channels, overmindJid);
+          if (!ch) {
+            logger.warn(
+              { group: group.folder, overmindJid },
+              'Compaction notification skipped: no channel owns overmindJid',
+            );
+          } else {
+            const tokensK = Math.round(peakInputTokens / 1000);
+            const msg = `📦 **Compaction** — \`${group.folder}\` hit ${tokensK}K tokens → session reset (${result.summaryWords}-word summary saved)`;
+            ch.sendMessage(overmindJid, msg).catch((err) =>
+              logger.warn(
+                { err, group: group.folder },
+                'Failed to send compaction notification',
+              ),
+            );
+          }
         }
       }
     }
