@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Annual audit: check groups' tool-calls.jsonl for sheets.mjs heredoc
+  regressions (Fix #4). Fires once per year on Apr 27 at 09:57 local.
+  Output appended to logs/audit-sheets-heredocs.log. Unload and delete
+  this plist once you no longer need the recurring check:
+    launchctl bootout gui/$(id -u)/com.nanoclaw.audit-sheets
+    rm ~/Library/LaunchAgents/com.nanoclaw.audit-sheets.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nanoclaw.audit-sheets</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{PROJECT_ROOT}}/scripts/audit-sheets-heredocs.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{PROJECT_ROOT}}</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Month</key>
+        <integer>4</integer>
+        <key>Day</key>
+        <integer>27</integer>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>57</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{{PROJECT_ROOT}}/logs/audit-sheets-heredocs.log</string>
+    <key>StandardErrorPath</key>
+    <string>{{PROJECT_ROOT}}/logs/audit-sheets-heredocs.log</string>
+</dict>
+</plist>
