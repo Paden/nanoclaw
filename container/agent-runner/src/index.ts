@@ -569,18 +569,13 @@ async function runQuery(
       // bans ToolSearch and the group is latency-sensitive. Together they add
       // ~18 tool schemas (≈8 K tokens) for zero benefit.
       removeServers: ['google-calendar', 'ollama'],
-      // read_range / batch_read_ranges / get_spreadsheet_info return raw
-      // JSON.stringify(rows) — a 700-row Feedings tab is ~200 K tokens in context.
-      // All reads go through build_status_card.mjs which pre-processes to ~500
-      // chars. Only writes are needed via MCP.
+      // read_range returns raw JSON.stringify(rows) — a 700-row Feedings tab
+      // is ~200 K tokens in context. All reads go through build_status_card.mjs
+      // which pre-processes to ~500 chars. Only writes are needed via MCP.
       // NOTE: replaceToolWildcards (allowedTools manipulation) is ineffective with
       // allowDangerouslySkipPermissions:true — use disallowedTools instead, which
       // is a hard CLI-level block regardless of permission mode.
-      disallowedTools: [
-        'mcp__google-sheets__read_range',
-        'mcp__google-sheets__batch_read_ranges',
-        'mcp__google-sheets__get_spreadsheet_info',
-      ],
+      disallowedTools: ['mcp__google-sheets__read_range'],
     },
   };
 
