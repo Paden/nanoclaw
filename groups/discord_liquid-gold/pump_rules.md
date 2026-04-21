@@ -6,7 +6,7 @@ Read this on the first pump event of a session.
 
 When Brenda logs a pump session:
 1. Send the Emilio quote via `send_message({sender: "Emilio", text: <quote>})` — posts as Emilio's webhook, not Claudio.
-2. Hydration nudge (every 3rd session): Claudio sends `💧 Water check!` in his own voice (no `sender` field).
+2. Hydration/snack nudge (every 3rd session): also `sender: "Emilio"`, in baby voice. Rotate between water and snack prompts — e.g. `wawa mama? 💧`, `ouuu tiwsty`, `nom nom mama eat? 🍎`, `goo ga snack?`. Keep it one line, baby sounds only.
 
 Silently append the Silverthorne XP row (see below) — never mention pet names, pet emoji, or XP in the reply text. Pets live in #silverthorne and #family-fun, not here.
 
