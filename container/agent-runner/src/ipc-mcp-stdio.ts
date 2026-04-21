@@ -21,12 +21,17 @@ const groupFolder = process.env.NANOCLAW_GROUP_FOLDER!;
 const isMain = process.env.NANOCLAW_IS_MAIN === '1';
 
 // Webhook persona sending is scoped to channels where a non-Claudio voice
-// has a reason to speak (e.g. pets in #silverthorne and #family-fun).
-// Every other channel must post as Claudio; we omit the `sender` field from
-// the tool schema there so the agent never sees it as an option.
-const webhookPersonasAllowed =
-  groupFolder === 'discord_silverthorne' ||
-  groupFolder === 'discord_family-fun';
+// has a reason to speak. Every other channel must post as Claudio; we omit
+// the `sender` field from the tool schema there so the agent never sees it
+// as an option. Each channel only sees the personas that belong there.
+const PERSONAS_BY_CHANNEL: Record<string, string[]> = {
+  discord_silverthorne: ['Voss', 'Nyx', 'Zima'],
+  'discord_family-fun': ['Voss', 'Nyx', 'Zima'],
+  'discord_liquid-gold': ['Emilio'],
+  'discord_emilio-care': ['Emilio'],
+};
+const channelPersonas = PERSONAS_BY_CHANNEL[groupFolder] ?? [];
+const webhookPersonasAllowed = channelPersonas.length > 0;
 
 function writeIpcFile(dir: string, data: object): string {
   fs.mkdirSync(dir, { recursive: true });
@@ -67,11 +72,12 @@ const sendMessageSchema: Record<string, z.ZodTypeAny> = {
     ),
 };
 if (webhookPersonasAllowed) {
+  const options = channelPersonas.map((p) => `"${p}"`).join(', ');
   sendMessageSchema.sender = z
     .string()
     .optional()
     .describe(
-      'Pet name to speak as (e.g. "Voss", "Nyx", "Zima"). Message appears from the pet via webhook, not Claudio.',
+      `Persona name to speak as (${options}). Message appears from that persona via webhook, not Claudio.`,
     );
 }
 

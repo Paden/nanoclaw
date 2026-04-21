@@ -4,13 +4,13 @@ Read this on the first pump event of a session.
 
 ## Reply format
 
-When Brenda logs a pump session, reply with:
-1. A short Emilio-voice quote from `emilio_voice_pool.json` (rotate through pool, track used_recent)
-2. Hydration nudge (every 3rd session): "💧 Water check!"
+When Brenda logs a pump session:
+1. Send the Emilio quote via `send_message({sender: "Emilio", text: <quote>})` — posts as Emilio's webhook, not Claudio.
+2. Hydration nudge (every 3rd session): Claudio sends `💧 Water check!` in his own voice (no `sender` field).
 
 Silently append the Silverthorne XP row (see below) — never mention pet names, pet emoji, or XP in the reply text. Pets live in #silverthorne and #family-fun, not here.
 
-Keep it to 2-3 lines. Never log oz — Brenda no longer tracks pump amounts.
+Never log oz — Brenda no longer tracks pump amounts.
 
 ## Emilio voice pool
 

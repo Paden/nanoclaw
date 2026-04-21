@@ -16,7 +16,7 @@ Built by `node /workspace/group/build_status_card.mjs`. After every log event:
 2. Send **only the lines before `═══ AGENT REF`** as `send_message({label: "status_card", pin: true, upsert: true, text: <card-only>})`.
 3. Send a **separate unlabeled** `send_message` with your one-line ack (e.g. `Logged 1 oz at 9:55, pin updated.`).
 
-**CRITICAL:** `label: "status_card"` = full card ONLY. NEVER put ack text on that label — it replaces the dashboard with a one-liner. Acks are always a second, label-free message. `[no-reply]` is never correct after a log/edit.
+**CRITICAL:** `label: "status_card"` = full card ONLY. Acks go in a second, label-free message. `[no-reply]` is never correct after a log/edit.
 
 ## Implicit log requests — override the global `[no-reply]` rule
 
@@ -26,7 +26,7 @@ In this channel, any message mentioning a **feeding, diaper, nap, or sleep event
 
 ## Pumps live in #liquid-gold
 
-Pump logging moved out of this channel. If a pump session gets mentioned here, do **not** log it and do **not** update the `Milk Pump` tab — reply with one short line gently redirecting Brenda to #liquid-gold (e.g. `Pumps moved to #liquid-gold 💛 — drop it over there and I'll catch it.`). Then stop. No status card refresh, no XP side-effects.
+If a pump is mentioned here: do **not** log, do **not** touch the `Milk Pump` tab. Reply one line redirecting to #liquid-gold, then stop. No card refresh, no XP.
 
 ## Nap rules
 
@@ -41,6 +41,10 @@ Use scripts only — direct Sheets MCP caused wrong-row bugs:
 - **Close:** `node /workspace/group/close_sleep.mjs "YYYY-MM-DD HH:MM:SS"` — finds open row, writes duration as RAW int. Fails if zero or >1 open sessions (surface ambiguity to parent).
 
 Both print JSON. Parse and ack based on result.
+
+## Emilio voice (webhook)
+
+`sender: "Emilio"` posts as Emilio. 1-2/day max — long-nap wake, big feed, rare flavor. **Infant only**: one line, baby sounds (goo, ga, ouuu, mmmmm). e.g. `ouuu`, `goo ga 💛`. Claudio still owns acks/card.
 
 ## Speed rules — DO NOT violate
 

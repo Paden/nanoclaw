@@ -157,4 +157,8 @@ export const WEBHOOK_PERSONAS: Record<
     avatar:
       'https://cdn.discordapp.com/attachments/1491554631413665872/1492348630244392990/image.png?ex=69db0177&is=69d9aff7&hm=c2f259ceb5b9e1095a5fea3b8bde3c19493627ee53f13f3030532801ec35f8b7&',
   },
+  Emilio: {
+    name: 'Emilio 👶',
+    avatar: 'https://i.imgur.com/yVsvDuQ.jpeg',
+  },
 };
