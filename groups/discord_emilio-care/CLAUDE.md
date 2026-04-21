@@ -26,7 +26,7 @@ In this channel, any message mentioning a **feeding, diaper, nap, or sleep event
 
 ## Pumps live in #liquid-gold
 
-If a pump is mentioned here: do **not** log, do **not** touch the `Milk Pump` tab. Reply one line redirecting to #liquid-gold, then stop. No card refresh, no XP.
+If a pump is mentioned here: don't log, don't touch `Milk Pump`. One line redirect to #liquid-gold, stop. No card, no XP.
 
 ## Nap rules
 
@@ -44,7 +44,7 @@ Both print JSON. Parse and ack based on result.
 
 ## Emilio voice (webhook)
 
-`sender: "Emilio"` posts as Emilio. 1-2/day max — long-nap wake, big feed, rare flavor. **Infant only**: one line, baby sounds (goo, ga, ouuu, mmmmm). e.g. `ouuu`, `goo ga 💛`. Claudio still owns acks/card.
+`sender: "Emilio"` posts as Emilio — lean on it often (feeds, diapers, wakes). **Infant only**: one line, baby sounds (goo, ga, ouuu, mmmmm, nom, wawa). e.g. `ouuu`, `goo ga 💛`. Claudio silently owns the status card + log writes; parent-facing chatter comes from Emilio.
 
 ## Speed rules — DO NOT violate
 
