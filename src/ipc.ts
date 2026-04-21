@@ -7,7 +7,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IPC_POLL_INTERVAL,
-  PET_IDENTITIES,
+  WEBHOOK_PERSONAS,
   TIMEZONE,
 } from './config.js';
 import { AvailableGroup } from './container-runner.js';
@@ -141,14 +141,17 @@ function writeLabels(sourceGroup: string, labels: LabelMap): void {
   fs.writeFileSync(p, JSON.stringify(labels, null, 2));
 }
 
-// Per-group pet avatar overrides. Container agents write to
-// `/workspace/group/pet_avatars.json` after evolution to update a pet's
-// display name and/or avatar URL without requiring a NanoClaw restart.
+// Per-group webhook persona overrides. Container agents write to
+// `/workspace/group/webhook_personas.json` after evolution (or any time)
+// to update a persona's display name and/or avatar URL without requiring
+// a NanoClaw restart.
 // Format: { "Voss": { "name": "Voss the Ember-Pawed", "avatar": "https://..." } }
-type PetOverride = { name?: string; avatar?: string };
-function loadPetOverrides(sourceGroup: string): Record<string, PetOverride> {
+type PersonaOverride = { name?: string; avatar?: string };
+function loadPersonaOverrides(
+  sourceGroup: string,
+): Record<string, PersonaOverride> {
   try {
-    const p = path.join(GROUPS_DIR, sourceGroup, 'pet_avatars.json');
+    const p = path.join(GROUPS_DIR, sourceGroup, 'webhook_personas.json');
     if (!fs.existsSync(p)) return {};
     const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
     return typeof parsed === 'object' && parsed !== null ? parsed : {};
@@ -157,13 +160,13 @@ function loadPetOverrides(sourceGroup: string): Record<string, PetOverride> {
   }
 }
 
-export function resolvePetIdentity(
+export function resolveWebhookPersona(
   sender: string | undefined,
   sourceGroup: string,
 ): { name: string; avatar?: string } | undefined {
   if (!sender) return undefined;
-  const baseline = PET_IDENTITIES[sender];
-  const override = loadPetOverrides(sourceGroup)[sender];
+  const baseline = WEBHOOK_PERSONAS[sender];
+  const override = loadPersonaOverrides(sourceGroup)[sender];
   if (!baseline && !override) return undefined;
   return {
     name: override?.name ?? baseline?.name ?? sender,
@@ -255,20 +258,21 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   }
                   continue;
                 }
-                // Pet voice: route through webhook when sender matches a pet.
-                // Per-group pet_avatars.json overrides baseline PET_IDENTITIES
-                // (lets agents update avatars at evolution without a restart).
-                const petId = resolvePetIdentity(data.sender, sourceGroup);
-                if (petId && deps.sendWebhookMessage) {
+                // Webhook persona: route through webhook when sender matches
+                // a known persona. Per-group webhook_personas.json overrides
+                // baseline WEBHOOK_PERSONAS (lets agents update avatars without
+                // a restart).
+                const persona = resolveWebhookPersona(data.sender, sourceGroup);
+                if (persona && deps.sendWebhookMessage) {
                   await deps.sendWebhookMessage(
                     jid,
                     data.text,
-                    petId.name,
-                    petId.avatar,
+                    persona.name,
+                    persona.avatar,
                   );
                   logger.info(
                     { chatJid: jid, sourceGroup, sender: data.sender },
-                    'IPC pet message sent via webhook',
+                    'IPC persona message sent via webhook',
                   );
                   try {
                     fs.unlinkSync(filePath);

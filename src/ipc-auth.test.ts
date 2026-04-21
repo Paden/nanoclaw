@@ -12,7 +12,7 @@ import {
   processTaskIpc,
   IpcDeps,
   decideMessageAction,
-  resolvePetIdentity,
+  resolveWebhookPersona,
   stripNoReplySuffix,
   todayDate,
 } from './ipc.js';
@@ -821,11 +821,15 @@ describe('decideMessageAction', () => {
   });
 });
 
-describe('resolvePetIdentity', () => {
+describe('resolveWebhookPersona', () => {
   // Use a unique fake group folder under GROUPS_DIR so writes don't clash
   // with real groups; cleaned up after each test.
-  const TEST_GROUP = '__test_resolve_pet_identity';
-  const overrideFile = path.join(GROUPS_DIR, TEST_GROUP, 'pet_avatars.json');
+  const TEST_GROUP = '__test_resolve_webhook_persona';
+  const overrideFile = path.join(
+    GROUPS_DIR,
+    TEST_GROUP,
+    'webhook_personas.json',
+  );
 
   function writeOverride(contents: unknown): void {
     fs.mkdirSync(path.dirname(overrideFile), { recursive: true });
@@ -846,22 +850,22 @@ describe('resolvePetIdentity', () => {
   beforeEach(cleanup);
 
   it('returns undefined when sender is undefined', () => {
-    expect(resolvePetIdentity(undefined, TEST_GROUP)).toBeUndefined();
+    expect(resolveWebhookPersona(undefined, TEST_GROUP)).toBeUndefined();
   });
 
   it('returns undefined when sender is unknown and no override', () => {
-    expect(resolvePetIdentity('Ghost', TEST_GROUP)).toBeUndefined();
+    expect(resolveWebhookPersona('Ghost', TEST_GROUP)).toBeUndefined();
   });
 
   it('returns baseline when no override file exists', () => {
-    const result = resolvePetIdentity('Voss', TEST_GROUP);
+    const result = resolveWebhookPersona('Voss', TEST_GROUP);
     expect(result).toBeDefined();
     expect(result?.name).toContain('Voss');
   });
 
   it('override avatar wins over baseline avatar', () => {
     writeOverride({ Voss: { avatar: 'https://example.com/new.png' } });
-    const result = resolvePetIdentity('Voss', TEST_GROUP);
+    const result = resolveWebhookPersona('Voss', TEST_GROUP);
     expect(result?.avatar).toBe('https://example.com/new.png');
     expect(result?.name).toContain('Voss'); // baseline name preserved
     cleanup();
@@ -871,7 +875,7 @@ describe('resolvePetIdentity', () => {
     writeOverride({
       Voss: { name: 'Voss the Mighty 🌋', avatar: 'https://example.com/v.png' },
     });
-    const result = resolvePetIdentity('Voss', TEST_GROUP);
+    const result = resolveWebhookPersona('Voss', TEST_GROUP);
     expect(result?.name).toBe('Voss the Mighty 🌋');
     expect(result?.avatar).toBe('https://example.com/v.png');
     cleanup();
@@ -881,7 +885,7 @@ describe('resolvePetIdentity', () => {
     writeOverride({
       Newcomer: { name: 'Newcomer ✨', avatar: 'https://example.com/n.png' },
     });
-    const result = resolvePetIdentity('Newcomer', TEST_GROUP);
+    const result = resolveWebhookPersona('Newcomer', TEST_GROUP);
     expect(result?.name).toBe('Newcomer ✨');
     expect(result?.avatar).toBe('https://example.com/n.png');
     cleanup();
@@ -890,7 +894,7 @@ describe('resolvePetIdentity', () => {
   it('malformed JSON falls back to baseline', () => {
     fs.mkdirSync(path.dirname(overrideFile), { recursive: true });
     fs.writeFileSync(overrideFile, '{ not json');
-    const result = resolvePetIdentity('Voss', TEST_GROUP);
+    const result = resolveWebhookPersona('Voss', TEST_GROUP);
     expect(result?.name).toContain('Voss'); // baseline still used
     cleanup();
   });

@@ -20,12 +20,11 @@ const chatJid = process.env.NANOCLAW_CHAT_JID!;
 const groupFolder = process.env.NANOCLAW_GROUP_FOLDER!;
 const isMain = process.env.NANOCLAW_IS_MAIN === '1';
 
-// Pet-voice webhook sending is scoped to #silverthorne and #family-fun —
-// the two public channels where Voss/Nyx/Zima have reasons to speak (chores
-// + games). Every other channel (DMs, emilio-care, general, etc.) must post
-// as Claudio; we omit the `sender` field from the tool schema there so the
-// agent never sees it as an option.
-const petVoicesAllowed =
+// Webhook persona sending is scoped to channels where a non-Claudio voice
+// has a reason to speak (e.g. pets in #silverthorne and #family-fun).
+// Every other channel must post as Claudio; we omit the `sender` field from
+// the tool schema there so the agent never sees it as an option.
+const webhookPersonasAllowed =
   groupFolder === 'discord_silverthorne' ||
   groupFolder === 'discord_family-fun';
 
@@ -67,7 +66,7 @@ const sendMessageSchema: Record<string, z.ZodTypeAny> = {
       'If true and label already exists, edit the existing message instead of posting a new one. Use for persistent status cards — one call handles both create and update.',
     ),
 };
-if (petVoicesAllowed) {
+if (webhookPersonasAllowed) {
   sendMessageSchema.sender = z
     .string()
     .optional()
@@ -81,7 +80,7 @@ server.tool(
   "Send a message to the user or group immediately while you're still running. Optionally tag the message with a label so you can edit/pin/delete it later (e.g. a persistent status card). Optionally pin on send.",
   sendMessageSchema,
   async (args) => {
-    const sender = petVoicesAllowed
+    const sender = webhookPersonasAllowed
       ? ((args as { sender?: string }).sender ?? undefined)
       : undefined;
     const data: Record<string, string | boolean | undefined> = {

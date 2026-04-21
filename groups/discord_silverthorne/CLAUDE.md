@@ -32,7 +32,7 @@ Spreadsheet ID: `1I3YtBJkFU22xTq1CRqRDjQ1ITrs5nApsfkUV9-jQb-4`. Tabs: `Chores`, 
 
 ## Scripts
 
-- `node /workspace/group/award_xp.mjs <owner> <xp> "<reason>"` — XP awards. If `evolved: true` in output → post 3-message evolution sequence + 4th art-prompt message (see chore_pet_spec.md "Uniqueness"). Owner replies with CDN URL → update `/workspace/group/pet_avatars.json`.
+- `node /workspace/group/award_xp.mjs <owner> <xp> "<reason>"` — XP awards. If `evolved: true` in output → post 3-message evolution sequence + 4th art-prompt message (see chore_pet_spec.md "Uniqueness"). Owner replies with CDN URL → update `/workspace/group/webhook_personas.json`.
 - `node /workspace/group/build_status_card.mjs` — outputs the Discord card followed by an `═══ AGENT REF ═══` section with all chore IDs and the last 10 log entries. Use chore IDs from here — never call `read_range` to look them up.
 
 ## Status card
