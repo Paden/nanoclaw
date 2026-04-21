@@ -4,11 +4,11 @@ These MCP servers are mounted into every group's container (unless noted). Prefe
 
 ## `mcp__google-sheets__*` — Google Sheets
 
-Authenticated as padenportillo@gmail.com via OAuth tokens shared with calendar-mcp. Read and write the three family sheets listed in `/workspace/global/sheets.md`.
+Authenticated as padenportillo@gmail.com via OAuth tokens shared with calendar-mcp. Read and write the three family sheets whose IDs and tab schemas are already inlined in your system prompt.
 
 **Use for:** reading rows, appending rows, overwriting ranges.
 **Don't use for:** creating new spreadsheets or tabs — the canonical three already exist; never duplicate them. If you need a new tab, ask a human.
-**Timestamp rule:** every timestamp value follows `/workspace/global/date_time_convention.md` (`YYYY-MM-DD HH:MM:SS` in America/Chicago, no `T`, no `Z`).
+**Timestamp rule:** every timestamp value follows the date/time convention already inlined in your system prompt (`YYYY-MM-DD HH:MM:SS` in America/Chicago, no `T`, no `Z`).
 
 **Exact call shapes — don't guess:**
 

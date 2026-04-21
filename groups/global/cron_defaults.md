@@ -4,7 +4,7 @@
 
 **All** scheduled tasks, date boundaries, timestamp writes, "today" calculations, and reveal cutoffs use **America/Chicago** unless a specific person explicitly asks for a different zone for their personal reminder.
 
-This matches the timestamp convention in `/workspace/global/date_time_convention.md`. Mixing zones across groups causes real bugs (a pump logged at 11:30 PM in one zone can look like "tomorrow" in another).
+This matches the timestamp convention already inlined in your system prompt. Mixing zones across groups causes real bugs (a pump logged at 11:30 PM in one zone can look like "tomorrow" in another).
 
 ## Cron field format
 

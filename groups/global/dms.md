@@ -26,7 +26,7 @@ When the user sends a 5-letter guess in a DM:
 
 **NEVER read the Wordle Today tab directly.** The answer must stay hidden from you so you cannot accidentally leak it. The script is the only thing that touches the answer.
 
-Timestamps: `YYYY-MM-DD HH:MM:SS` America/Chicago. See `/workspace/global/date_time_convention.md`.
+Timestamps: `YYYY-MM-DD HH:MM:SS` America/Chicago (the full convention is already inlined in your system prompt).
 
 ## Anti-cheat triggers
 

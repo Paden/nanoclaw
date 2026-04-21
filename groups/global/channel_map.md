@@ -45,4 +45,4 @@ Every channel Claudio runs in, what it's for, and how they connect. When a reque
 
 ## Channels are NOT isolated
 
-Groups share state through Google Sheets (not through the filesystem — each group mounts its own `/workspace/group/`). If a group needs to see or write data owned by another, go through the sheet, not through files. See `/workspace/global/sheets.md` for ownership.
+Groups share state through Google Sheets (not through the filesystem — each group mounts its own `/workspace/group/`). If a group needs to see or write data owned by another, go through the sheet, not through files. Sheet ownership is already inlined in your system prompt.

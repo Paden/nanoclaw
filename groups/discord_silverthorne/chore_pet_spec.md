@@ -49,7 +49,7 @@ One row per household member.
 | `last_completion_date` | `YYYY-MM-DD` (America/Chicago) |
 | `status` | `alive` / `critical` / `deceased` |
 | `legacy_xp` | `0` |
-| `last_updated` | `YYYY-MM-DD HH:MM:SS` (America/Chicago — see `/workspace/global/date_time_convention.md`) |
+| `last_updated` | `YYYY-MM-DD HH:MM:SS` (America/Chicago) |
 
 ### Tab: `Pet Log` (create)
 Append-only audit trail. Columns: `timestamp`, `owner`, `event_type` (`xp_gain` / `evolution` / `decay` / `critical` / `death` / `revival` / `interaction`), `delta`, `reason`, `notes`.

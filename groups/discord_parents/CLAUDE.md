@@ -8,7 +8,7 @@ Airtable still has the historical feeding/pumping data for baby Emilio but is be
 
 ## Google Sheets (primary store for Emilio's data)
 
-This group has access to Google Sheets via `mcp__google-sheets__*` tools (authenticated as padenportillo@gmail.com). Sheet IDs and tab schemas live in `/workspace/global/sheets.md` — read it. Timestamp format is in `/workspace/global/date_time_convention.md`. This group reads from **Emilio Tracking** (for schedule/feeding queries) and **Portillo Games** (for the Panda romance game reveal poller).
+This group has access to Google Sheets via `mcp__google-sheets__*` tools (authenticated as padenportillo@gmail.com). Sheet IDs, tab schemas, and timestamp format are already inlined in your system prompt — do not Read the global reference files. This group reads from **Emilio Tracking** (for schedule/feeding queries) and **Portillo Games** (for the Panda romance game reveal poller).
 
 ## Google Calendar
 

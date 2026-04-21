@@ -22,8 +22,8 @@ NOT for feeding/sleep (→ #emilio-care) or date logistics (→ #panda).
 
 ## Speed rules — DO NOT violate
 
-- Read `/workspace/global/date_time_convention.md` on demand for timestamp format.
-- **Never re-read mid-session:** `chore_pet_spec.md`, `award_xp.mjs`, `build_status_card.mjs`, `sheets.mjs`, `sheets.md`.
+- Timestamp format is already in your system prompt — do not Read the global reference files.
+- **Never re-read mid-session:** `chore_pet_spec.md`, `award_xp.mjs`, `build_status_card.mjs`, `sheets.mjs`.
 - **Never call `read_range`** on `Chore Log`, `Pet Log`, `Chores`, or `Pets`. Chore IDs and recent log are in the AGENT REF section of `build_status_card.mjs` output.
 
 ## Sheets

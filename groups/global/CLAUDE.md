@@ -45,7 +45,7 @@ Use `ollama_generate` (model: **qwen3:8b**) for long replies, summaries, and cre
 
 ## Reference files
 
-Auto-loaded into this system prompt (do NOT Read — content is already above): `sheets.md`, `date_time_convention.md`.
+Sheet IDs / tab schemas and timestamp conventions are already inlined in this system prompt above. Do NOT Read any file under `/workspace/global/` whose content is already present — the content is authoritative here.
 
 Read on demand from `/workspace/global/`: `mcp_tools.md`, `communication.md`, `message_formatting.md`, `channel_map.md`, `task_scripts.md`, `cron_defaults.md`, `skills/agent-browser.md`. Read when needed, not at startup.
 
