@@ -441,7 +441,7 @@ async function buildContainerArgs(
     args.push('-e', 'DISABLE_ERROR_REPORTING=1');
     args.push('-e', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1');
 
-    args.push('-e', 'ANTHROPIC_BASE_URL=http://host.docker.internal:11436');
+    args.push('-e', 'ANTHROPIC_BASE_URL=http://host.docker.internal:11435');
     args.push('-e', `ANTHROPIC_API_KEY=${OLLAMA_API_KEY}`);
 
     logger.info(
