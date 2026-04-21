@@ -44,7 +44,7 @@ Both print JSON. Parse and ack based on result.
 
 ## Emilio voice (webhook)
 
-Step 3 of every log is a `sender: "Emilio"` chime. Match the event: feed → `nom nom 💛`, diaper → `ouuu`, nap → `nini mama 💤`, wake → `ouuu awake!`. Infant only: one line, baby sounds (goo, ga, ouuu, mmmmm, nom, wawa, nini).
+Step 3 of every log is a `sender: "Emilio"` chime. **Read `/workspace/group/emilio_voice.md` on first log event** — it has event pools, rotation rules, and baby-words. One line, infant only, never repeat the prior chime.
 
 ## Speed rules — DO NOT violate
 
