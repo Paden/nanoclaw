@@ -14,9 +14,9 @@ Built by `node /workspace/group/build_status_card.mjs`. After every log event:
 
 1. Run the script — it prints the card followed by an `═══ AGENT REF ═══` section with row numbers.
 2. Send **only the lines before `═══ AGENT REF`** as `send_message({label: "status_card", pin: true, upsert: true, text: <card-only>})`.
-3. Send a **separate unlabeled** `send_message` with your one-line ack (e.g. `Logged 1 oz at 9:55, pin updated.`).
+3. Send `send_message({sender: "Emilio", text: <baby-sound>})` — infant-voice chime matching the event (see Emilio voice). REPLACES any Claudio ack.
 
-**CRITICAL:** `label: "status_card"` = full card ONLY. Acks go in a second, label-free message. `[no-reply]` is never correct after a log/edit.
+**CRITICAL:** `label: "status_card"` = full card ONLY. Step 3 is always Emilio, never Claudio. `[no-reply]` is never correct after a log/edit.
 
 ## Implicit log requests — override the global `[no-reply]` rule
 
@@ -44,7 +44,7 @@ Both print JSON. Parse and ack based on result.
 
 ## Emilio voice (webhook)
 
-`sender: "Emilio"` posts as Emilio — lean on it often (feeds, diapers, wakes). **Infant only**: one line, baby sounds (goo, ga, ouuu, mmmmm, nom, wawa). e.g. `ouuu`, `goo ga 💛`. Claudio silently owns the status card + log writes; parent-facing chatter comes from Emilio.
+Step 3 of every log is a `sender: "Emilio"` chime. Match the event: feed → `nom nom 💛`, diaper → `ouuu`, nap → `nini mama 💤`, wake → `ouuu awake!`. Infant only: one line, baby sounds (goo, ga, ouuu, mmmmm, nom, wawa, nini).
 
 ## Speed rules — DO NOT violate
 
