@@ -63,10 +63,13 @@ function ownerFor(userId) {
 // active offset (CST/CDT) via Intl so DST is handled without a tz library.
 function parseChicagoTs(str) {
   // Existing sheet rows use both zero-padded ("19:30:00") and single-digit
-  // ("6:39:00") hours depending on which writer logged them.
+  // ("6:39:00") hours depending on which writer logged them. ISO 8601
+  // requires 2-digit hours, so zero-pad before constructing the Date.
   const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{1,2}):(\d{2}):(\d{2})$/);
   if (!m) throw new Error(`bad timestamp: ${str}`);
-  const probe = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
+  const hh = m[4].padStart(2, '0');
+  const probe = new Date(`${m[1]}-${m[2]}-${m[3]}T${hh}:${m[5]}:${m[6]}Z`);
+  if (Number.isNaN(probe.getTime())) throw new Error(`bad timestamp: ${str}`);
   const utcStr = probe.toLocaleString('en-US', { timeZone: 'UTC' });
   const chiStr = probe.toLocaleString('en-US', { timeZone: 'America/Chicago' });
   const offsetMin = Math.round((new Date(utcStr) - new Date(chiStr)) / 60_000);
