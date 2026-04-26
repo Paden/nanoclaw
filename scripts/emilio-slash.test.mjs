@@ -57,13 +57,13 @@ describe('runAsleep', () => {
     const out = await runAsleep({ userId: PADEN, time: 'now' }, deps);
     expect(out.ok).toBe(true);
     expect(deps.openSleep).toHaveBeenCalledTimes(1);
-    expect(deps.writeIpcMessage).toHaveBeenCalledTimes(3); // chime + Claudio confirm + status_card
-    // Claudio confirm post should mention the owner and be non-ephemeral (no `sender`)
-    const claudioCall = deps.writeIpcMessage.mock.calls.find(
-      (c) => c[1].type === 'message' && !c[1].sender,
+    expect(deps.writeIpcMessage).toHaveBeenCalledTimes(2); // combined Emilio chime+subtitle + status_card
+    // Combined chime+subtitle should be one Emilio-voiced message containing the owner.
+    const emilioCall = deps.writeIpcMessage.mock.calls.find(
+      (c) => c[1].type === 'message' && c[1].sender === 'Emilio',
     );
-    expect(claudioCall).toBeDefined();
-    expect(claudioCall[1].text).toMatch(/Paden/);
+    expect(emilioCall).toBeDefined();
+    expect(emilioCall[1].text).toMatch(/Paden/);
   });
 
   it('refuses when an open nap exists', async () => {
@@ -129,7 +129,7 @@ describe('runFeeding', () => {
         source: 'Formula',
       }),
     );
-    expect(deps.writeIpcMessage).toHaveBeenCalledTimes(3);
+    expect(deps.writeIpcMessage).toHaveBeenCalledTimes(2);
   });
 
   it('rejects bad amount', async () => {

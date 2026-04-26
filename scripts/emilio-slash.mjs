@@ -84,32 +84,25 @@ function findOpenNaps(rows) {
     .filter((r) => r.start && !r.duration);
 }
 
-// emitFollowups — after every successful sheet write, fire the Emilio chime,
-// post a Claudio confirmation visible to both parents, and refresh the pinned
-// status card. Three IPC messages.
+// emitFollowups — after every successful sheet write, fire ONE Emilio message
+// that combines the chime + a parenthetical data subtitle, then refresh the
+// pinned status card. Two IPC messages total.
 async function emitFollowups(deps, eventType, confirmText) {
   const token = await deps.getToken();
 
-  // Chime first (Emilio webhook persona) — the cute reaction lands before the
-  // data-bearing confirmation.
+  // Chime + data subtitle, single message in Emilio's voice.
   const state = deps.loadChimeState();
   const { text: chimeText, newState } = deps.pickChime(eventType, state);
+  const combined = confirmText
+    ? `${chimeText}\n-# ${confirmText}`
+    : chimeText;
   await deps.writeIpcMessage(GROUP_FOLDER, {
     type: 'message',
     chatJid: CHAT_JID,
     sender: 'Emilio',
-    text: chimeText,
+    text: combined,
   });
   deps.saveChimeState(newState);
-
-  // Claudio confirmation — non-ephemeral, both parents see what got logged.
-  if (confirmText) {
-    await deps.writeIpcMessage(GROUP_FOLDER, {
-      type: 'message',
-      chatJid: CHAT_JID,
-      text: confirmText,
-    });
-  }
 
   // Status card refresh (silent edit on the pinned label).
   let cardText;
@@ -148,7 +141,7 @@ export async function runAsleep({ userId, time }, deps) {
   const result = await deps.openSleep(parsed.iso);
   if (!result.ok) return { ok: false, error: result.error || 'open_sleep failed' };
   const owner = ownerFor(userId);
-  await emitFollowups(deps, 'asleep', `😴 ${owner}: nap started at ${parsed.displayLocal}.`);
+  await emitFollowups(deps, 'asleep', `${owner} · ${parsed.displayLocal}`);
   return { ok: true, reply: `Nap opened at ${parsed.displayLocal}.` };
 }
 
@@ -170,7 +163,7 @@ export async function runAwake({ userId, time }, deps) {
   await emitFollowups(
     deps,
     'awake',
-    `☀️ ${owner}: awake at ${parsed.displayLocal} (nap was ${result.durationMin} min).`,
+    `${owner} · ${parsed.displayLocal} · ${result.durationMin}m nap`,
   );
   return {
     ok: true,
@@ -211,7 +204,8 @@ export async function runFeeding({ userId, amount, time, source }, deps) {
   }
 
   const owner = ownerFor(userId);
-  const confirm = `🍼 ${owner}: ${n} oz ${src} at ${parsed.displayLocal}${napClosed ? ' (nap closed)' : ''}.`;
+  const srcLabel = src === 'Formula' ? '' : ` ${src}`;
+  const confirm = `${owner} · ${n} oz${srcLabel} · ${parsed.displayLocal}${napClosed ? ' · nap closed' : ''}`;
   await emitFollowups(deps, 'feeding', confirm);
   const reply = `Logged ${n}oz ${src} at ${parsed.displayLocal}.${napClosed ? ' Closed open nap.' : ''}`;
   return { ok: true, reply, napClosed };
@@ -262,7 +256,7 @@ export async function runUpdateFeeding({ userId, amount, row }, deps) {
   await emitFollowups(
     deps,
     'feeding_update',
-    `✏️ ${owner}: feeding at ${tsLabel} updated to ${n} oz (was ${target.amount} oz).`,
+    `${owner} · ${tsLabel} · ${target.amount}oz → ${n}oz`,
   );
   return {
     ok: true,
