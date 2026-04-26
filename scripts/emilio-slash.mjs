@@ -100,6 +100,13 @@ function formatSheetTimeOfDay(timestamp) {
   return `${h12}:${mm} ${ampm}`;
 }
 
+// Normalize a sheet timestamp to "YYYY-MM-DD HH:MM:SS" for comparison.
+// Old agent-written rows have unpadded hours ("3:55:00") which break
+// lexicographic sorts when mixed with new slash-written zero-padded ones.
+function normalizeSheetTs(timestamp) {
+  return String(timestamp).replace(/\s(\d):/, ' 0$1:');
+}
+
 function findOpenNaps(rows) {
   if (!rows || rows.length < 2) return [];
   return rows
@@ -292,7 +299,9 @@ export async function runUpdateFeeding({ userId, amount, row }, deps) {
       }
     }
     if (todays.length === 0) return { ok: false, error: 'No feedings logged today.' };
-    todays.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+    todays.sort((a, b) =>
+      normalizeSheetTs(a.timestamp) < normalizeSheetTs(b.timestamp) ? 1 : -1,
+    );
     target = todays[0];
   }
 
@@ -323,7 +332,9 @@ export async function runAutocompleteFeedingRow(_args, deps) {
       todays.push({ ts, amount: r[1] || '', source: r[2] || '' });
     }
   }
-  todays.sort((a, b) => (a.ts < b.ts ? 1 : -1));
+  todays.sort((a, b) =>
+    normalizeSheetTs(a.ts) < normalizeSheetTs(b.ts) ? 1 : -1,
+  );
   const top = todays.slice(0, 5);
   return {
     ok: true,
