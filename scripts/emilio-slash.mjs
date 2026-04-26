@@ -448,7 +448,7 @@ export async function defaultDeps() {
     },
     buildStatusCard: cardMod.buildStatusCard,
     writeIpcMessage: ipc.writeIpcMessage,
-    pickChime: (evt, state) => pickChime(evt, pools, state),
+    pickChime: (evt, state, opts) => pickChime(evt, pools, state, opts),
     loadChimeState: () => {
       try {
         return JSON.parse(fs.readFileSync(CHIME_STATE_PATH, 'utf8'));
