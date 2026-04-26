@@ -62,7 +62,9 @@ function ownerFor(userId) {
 // Parse "YYYY-MM-DD HH:MM:SS" as America/Chicago wall-clock. Derives the
 // active offset (CST/CDT) via Intl so DST is handled without a tz library.
 function parseChicagoTs(str) {
-  const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  // Existing sheet rows use both zero-padded ("19:30:00") and single-digit
+  // ("6:39:00") hours depending on which writer logged them.
+  const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{1,2}):(\d{2}):(\d{2})$/);
   if (!m) throw new Error(`bad timestamp: ${str}`);
   const probe = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
   const utcStr = probe.toLocaleString('en-US', { timeZone: 'UTC' });
@@ -190,12 +192,19 @@ export async function runFeeding({ userId, amount, time, source }, deps) {
 
   // Implicit wake-up: re-read sleep log AFTER appending and auto-close iff
   // exactly one nap is open. Zero or 2+ → no auto-close, no error.
+  // The auto-close is a convenience — if it fails (bad sheet timestamp,
+  // network blip, etc.), the feeding itself is already logged so we keep
+  // the chime + confirm + card path instead of bubbling the error up.
   let napClosed = false;
-  const sleepRows = await deps.readSleepLog(token);
-  const open = findOpenNaps(sleepRows);
-  if (open.length === 1) {
-    const closeResult = await deps.closeSleep(parsed.iso);
-    if (closeResult && closeResult.ok) napClosed = true;
+  try {
+    const sleepRows = await deps.readSleepLog(token);
+    const open = findOpenNaps(sleepRows);
+    if (open.length === 1) {
+      const closeResult = await deps.closeSleep(parsed.iso);
+      if (closeResult && closeResult.ok) napClosed = true;
+    }
+  } catch (err) {
+    process.stderr.write(`auto-close failed (feeding still logged): ${err.message}\n`);
   }
 
   const owner = ownerFor(userId);
