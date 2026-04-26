@@ -7,6 +7,7 @@ export default defineConfig({
       'setup/**/*.test.ts',
       'groups/**/*.test.mjs',
       'scripts/**/*.test.ts',
+      'scripts/**/*.test.mjs',
     ],
   },
 });
