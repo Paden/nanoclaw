@@ -79,10 +79,34 @@ function findOpenNaps(rows) {
     .filter((r) => r.start && !r.duration);
 }
 
-// emitFollowups — after every successful sheet write, refresh the pinned
-// status card and fire an Emilio chime via two IPC messages.
-async function emitFollowups(deps, eventType) {
+// emitFollowups — after every successful sheet write, fire the Emilio chime,
+// post a Claudio confirmation visible to both parents, and refresh the pinned
+// status card. Three IPC messages.
+async function emitFollowups(deps, eventType, confirmText) {
   const token = await deps.getToken();
+
+  // Chime first (Emilio webhook persona) — the cute reaction lands before the
+  // data-bearing confirmation.
+  const state = deps.loadChimeState();
+  const { text: chimeText, newState } = deps.pickChime(eventType, state);
+  await deps.writeIpcMessage(GROUP_FOLDER, {
+    type: 'message',
+    chatJid: CHAT_JID,
+    sender: 'Emilio',
+    text: chimeText,
+  });
+  deps.saveChimeState(newState);
+
+  // Claudio confirmation — non-ephemeral, both parents see what got logged.
+  if (confirmText) {
+    await deps.writeIpcMessage(GROUP_FOLDER, {
+      type: 'message',
+      chatJid: CHAT_JID,
+      text: confirmText,
+    });
+  }
+
+  // Status card refresh (silent edit on the pinned label).
   let cardText;
   try {
     const card = await deps.buildStatusCard({ token });
@@ -98,15 +122,6 @@ async function emitFollowups(deps, eventType) {
       text: cardText,
     });
   }
-  const state = deps.loadChimeState();
-  const { text, newState } = deps.pickChime(eventType, state);
-  await deps.writeIpcMessage(GROUP_FOLDER, {
-    type: 'message',
-    chatJid: CHAT_JID,
-    sender: 'Emilio',
-    text,
-  });
-  deps.saveChimeState(newState);
 }
 
 // --- Action handlers (exported for tests) ---
@@ -127,7 +142,8 @@ export async function runAsleep({ userId, time }, deps) {
   const parsed = deps.parseTime(time, deps.now);
   const result = await deps.openSleep(parsed.iso);
   if (!result.ok) return { ok: false, error: result.error || 'open_sleep failed' };
-  await emitFollowups(deps, 'asleep');
+  const owner = ownerFor(userId);
+  await emitFollowups(deps, 'asleep', `😴 ${owner}: nap started at ${parsed.displayLocal}.`);
   return { ok: true, reply: `Nap opened at ${parsed.displayLocal}.` };
 }
 
@@ -145,7 +161,12 @@ export async function runAwake({ userId, time }, deps) {
   const parsed = deps.parseTime(time, deps.now);
   const result = await deps.closeSleep(parsed.iso);
   if (!result.ok) return { ok: false, error: result.error || 'close_sleep failed' };
-  await emitFollowups(deps, 'awake');
+  const owner = ownerFor(userId);
+  await emitFollowups(
+    deps,
+    'awake',
+    `☀️ ${owner}: awake at ${parsed.displayLocal} (nap was ${result.durationMin} min).`,
+  );
   return {
     ok: true,
     reply: `Nap closed at ${parsed.displayLocal}, ${result.durationMin} min.`,
@@ -177,7 +198,9 @@ export async function runFeeding({ userId, amount, time, source }, deps) {
     if (closeResult && closeResult.ok) napClosed = true;
   }
 
-  await emitFollowups(deps, 'feeding');
+  const owner = ownerFor(userId);
+  const confirm = `🍼 ${owner}: ${n} oz ${src} at ${parsed.displayLocal}${napClosed ? ' (nap closed)' : ''}.`;
+  await emitFollowups(deps, 'feeding', confirm);
   const reply = `Logged ${n}oz ${src} at ${parsed.displayLocal}.${napClosed ? ' Closed open nap.' : ''}`;
   return { ok: true, reply, napClosed };
 }
@@ -222,10 +245,16 @@ export async function runUpdateFeeding({ userId, amount, row }, deps) {
   }
 
   await deps.updateFeedingAmount(token, { sheetRow: target.sheetRow, amount: n });
-  await emitFollowups(deps, 'feeding_update');
+  const owner = ownerFor(userId);
+  const tsLabel = target.timestamp.slice(11, 16);
+  await emitFollowups(
+    deps,
+    'feeding_update',
+    `✏️ ${owner}: feeding at ${tsLabel} updated to ${n} oz (was ${target.amount} oz).`,
+  );
   return {
     ok: true,
-    reply: `Feeding at ${target.timestamp.slice(11, 16)} updated: ${target.amount}oz → ${n}oz.`,
+    reply: `Feeding at ${tsLabel} updated: ${target.amount}oz → ${n}oz.`,
   };
 }
 
