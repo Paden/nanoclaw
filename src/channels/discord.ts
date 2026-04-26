@@ -354,7 +354,8 @@ export class DiscordChannel implements Channel {
             interaction.commandName === 'asleep' ||
             interaction.commandName === 'awake' ||
             interaction.commandName === 'feeding' ||
-            interaction.commandName === 'update-feeding'
+            interaction.commandName === 'update-feeding' ||
+            interaction.commandName === 'diaper'
           ) {
             await this.handleEmilioSlashCommand(interaction);
             return;
@@ -539,6 +540,29 @@ export class DiscordChannel implements Channel {
                   .setDescription('Which feeding (autocomplete shows last 5)')
                   .setRequired(false)
                   .setAutocomplete(true),
+              )
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('diaper')
+              .setDescription('Log a diaper change (#emilio-care)')
+              .addStringOption((opt) =>
+                opt
+                  .setName('type')
+                  .setDescription('Diaper status')
+                  .setRequired(true)
+                  .addChoices(
+                    { name: 'wet', value: 'wet' },
+                    { name: 'poopy', value: 'poopy' },
+                    { name: 'both', value: 'both' },
+                  ),
+              )
+              .addStringOption((opt) =>
+                opt
+                  .setName('time')
+                  .setDescription(
+                    'Optional: 5m, 2:30pm, 14:30. Defaults to now.',
+                  )
+                  .setRequired(false),
               )
               .toJSON(),
           ];
@@ -1517,6 +1541,9 @@ export class DiscordChannel implements Channel {
       args.push(String(interaction.options.getNumber('amount', true)));
       args.push(interaction.options.getString('time') || '');
       args.push(interaction.options.getString('source') || '');
+    } else if (interaction.commandName === 'diaper') {
+      args.push(interaction.options.getString('type', true));
+      args.push(interaction.options.getString('time') || '');
     } else {
       // update-feeding
       args.push(String(interaction.options.getNumber('amount', true)));

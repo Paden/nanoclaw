@@ -211,6 +211,25 @@ export async function runFeeding({ userId, amount, time, source }, deps) {
   return { ok: true, reply, napClosed };
 }
 
+const DIAPER_TYPES = new Set(['wet', 'poopy', 'both']);
+
+export async function runDiaper({ userId, type, time }, deps) {
+  if (!ownerFor(userId)) {
+    return { ok: false, error: 'You are not registered for emilio-care logging.' };
+  }
+  if (!DIAPER_TYPES.has(type)) {
+    return { ok: false, error: `Unknown diaper type "${type}". Use wet, poopy, or both.` };
+  }
+  const parsed = deps.parseTime(time, deps.now);
+  const token = await deps.getToken();
+  await deps.appendDiaper(token, { timestamp: parsed.iso, status: type });
+
+  const owner = ownerFor(userId);
+  const confirm = `${owner} · ${type} · ${parsed.displayLocal}`;
+  await emitFollowups(deps, 'diaper', confirm);
+  return { ok: true, reply: `Logged ${type} diaper at ${parsed.displayLocal}.` };
+}
+
 export async function runUpdateFeeding({ userId, amount, row }, deps) {
   if (!ownerFor(userId)) {
     return { ok: false, error: 'You are not registered for emilio-care logging.' };
@@ -374,6 +393,20 @@ export async function defaultDeps() {
     updateFeedingAmount,
     readFeedings,
     validateAmount,
+    appendDiaper: async (token, { timestamp, status }) => {
+      const r = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent('Diaper Changes!A1')}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ values: [[timestamp, status]] }),
+        },
+      );
+      if (!r.ok) throw new Error(`appendDiaper ${r.status}: ${await r.text()}`);
+    },
     buildStatusCard: cardMod.buildStatusCard,
     writeIpcMessage: ipc.writeIpcMessage,
     pickChime: (evt, state) => pickChime(evt, pools, state),
@@ -417,6 +450,12 @@ async function main() {
       case 'update-feeding':
         out = await runUpdateFeeding(
           { userId, amount: rest[0], row: rest[1] || '' },
+          deps,
+        );
+        break;
+      case 'diaper':
+        out = await runDiaper(
+          { userId, type: rest[0], time: rest[1] || '' },
           deps,
         );
         break;

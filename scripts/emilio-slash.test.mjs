@@ -11,6 +11,7 @@ import {
   runAwake,
   runFeeding,
   runUpdateFeeding,
+  runDiaper,
   runAutocompleteFeedingRow,
 } from './emilio-slash.mjs';
 
@@ -26,6 +27,7 @@ function makeDeps(overrides = {}) {
     closeSleep: vi.fn(async () => ({ ok: true, durationMin: 30 })),
     appendFeeding: vi.fn(async () => undefined),
     updateFeedingAmount: vi.fn(async () => undefined),
+    appendDiaper: vi.fn(async () => undefined),
     readFeedings: vi.fn(async () => [
       ['Feed time', 'Amount', 'Source'],
       [FEED_TS, '1.5', 'Formula'],
@@ -234,5 +236,46 @@ describe('runAutocompleteFeedingRow', () => {
     expect(out.options.length).toBe(3);
     expect(out.options[0].label).toMatch(/5:30 PM/);
     expect(out.options[0].value).toBe('2026-04-25 17:30:00');
+  });
+});
+
+describe('runDiaper', () => {
+  it('appends a diaper row and fires followups', async () => {
+    const deps = makeDeps();
+    const out = await runDiaper({ userId: PADEN, type: 'wet', time: 'now' }, deps);
+    expect(out.ok).toBe(true);
+    expect(deps.appendDiaper).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({ status: 'wet' }),
+    );
+    expect(deps.writeIpcMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts poopy and both', async () => {
+    for (const type of ['poopy', 'both']) {
+      const deps = makeDeps();
+      const out = await runDiaper({ userId: PADEN, type, time: 'now' }, deps);
+      expect(out.ok).toBe(true);
+      expect(deps.appendDiaper).toHaveBeenCalledWith(
+        TOKEN,
+        expect.objectContaining({ status: type }),
+      );
+    }
+  });
+
+  it('rejects unknown type without writing', async () => {
+    const deps = makeDeps();
+    const out = await runDiaper({ userId: PADEN, type: 'bogus', time: 'now' }, deps);
+    expect(out.ok).toBe(false);
+    expect(out.error).toMatch(/Unknown diaper type/);
+    expect(deps.appendDiaper).not.toHaveBeenCalled();
+  });
+
+  it('rejects unregistered users', async () => {
+    const deps = makeDeps();
+    const out = await runDiaper({ userId: '999', type: 'wet', time: 'now' }, deps);
+    expect(out.ok).toBe(false);
+    expect(out.error).toMatch(/not registered/);
+    expect(deps.appendDiaper).not.toHaveBeenCalled();
   });
 });
