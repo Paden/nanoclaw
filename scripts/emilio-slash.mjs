@@ -246,8 +246,11 @@ export async function runAutocompleteFeedingRow(_args, deps) {
   return {
     ok: true,
     options: top.map((t) => {
-      const hh = parseInt(t.ts.slice(11, 13), 10);
-      const mm = t.ts.slice(14, 16);
+      // Match "YYYY-MM-DD H:MM:SS" or "YYYY-MM-DD HH:MM:SS" — older sheet rows
+      // were written with single-digit hours.
+      const m = t.ts.match(/\s(\d{1,2}):(\d{2}):/);
+      const hh = m ? parseInt(m[1], 10) : 0;
+      const mm = m ? m[2] : '00';
       const ampm = hh < 12 ? 'AM' : 'PM';
       const h12 = hh % 12 === 0 ? 12 : hh % 12;
       return {
