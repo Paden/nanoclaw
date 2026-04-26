@@ -64,4 +64,46 @@ describe('pickChime', () => {
     const r = pickChime('nap_start', pools, { last: { nap_start: 'nini mama' } });
     expect(r.newState.last.nap_start).toBe(r.text);
   });
+
+  it('filters mom-addressed lines when dad logs', () => {
+    const dadPools = {
+      feed: ['nom nom', 'yummy mama', 'mmm milk'],
+    };
+    for (let i = 0; i < 30; i++) {
+      const r = pickChime('feed', dadPools, { last: {} }, { parentRole: 'dad' });
+      expect(r.text).not.toBe('yummy mama');
+    }
+  });
+
+  it('filters dad-addressed lines when mom logs', () => {
+    const momPools = {
+      nap_start: ['zzz goo', 'nini dada', 'sleeeepy'],
+    };
+    for (let i = 0; i < 30; i++) {
+      const r = pickChime('nap_start', momPools, { last: {} }, { parentRole: 'mom' });
+      expect(r.text).not.toBe('nini dada');
+    }
+  });
+
+  it('filters both parent words when parentRole is null (sibling)', () => {
+    const mixedPools = {
+      general: ['mama 💛', 'dada!', 'goo', 'papá 💛'],
+    };
+    for (let i = 0; i < 30; i++) {
+      const r = pickChime('general', mixedPools, { last: {} }, { parentRole: null });
+      expect(r.text).toBe('goo');
+    }
+  });
+
+  it('falls back to unfiltered pool when filter empties everything', () => {
+    const pools = { feed: ['yummy mama', 'milky mama'] };
+    const r = pickChime('feed', pools, { last: {} }, { parentRole: 'dad' });
+    expect(['yummy mama', 'milky mama']).toContain(r.text);
+  });
+
+  it('skips parent filtering when no parentRole opt provided', () => {
+    const pools = { feed: ['yummy mama'] };
+    const r = pickChime('feed', pools, { last: {} });
+    expect(r.text).toBe('yummy mama');
+  });
 });

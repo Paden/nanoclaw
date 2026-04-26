@@ -55,6 +55,18 @@ function chicagoDateStr(date = new Date()) {
   return `${p.year}-${p.month}-${p.day}`;
 }
 
+const OWNER_TO_PARENT_ROLE = {
+  Paden: 'dad',
+  Brenda: 'mom',
+  Danny: null, // sibling — no parent address in chimes
+};
+
+function parentRoleFor(userId) {
+  const owner = USER_TO_OWNER[userId];
+  if (!owner) return null;
+  return OWNER_TO_PARENT_ROLE[owner] ?? null;
+}
+
 function ownerFor(userId) {
   return USER_TO_OWNER[userId] || null;
 }
@@ -76,6 +88,18 @@ function parseChicagoTs(str) {
   return new Date(probe.getTime() + offsetMin * 60_000);
 }
 
+// Format a sheet timestamp ("YYYY-MM-DD H:MM:SS" or "YYYY-MM-DD HH:MM:SS")
+// as "H:MM AM/PM". Existing rows use both hour formats.
+function formatSheetTimeOfDay(timestamp) {
+  const m = String(timestamp).match(/\s(\d{1,2}):(\d{2}):/);
+  if (!m) return timestamp;
+  const hh = parseInt(m[1], 10);
+  const mm = m[2];
+  const ampm = hh < 12 ? 'AM' : 'PM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${mm} ${ampm}`;
+}
+
 function findOpenNaps(rows) {
   if (!rows || rows.length < 2) return [];
   return rows
@@ -87,12 +111,12 @@ function findOpenNaps(rows) {
 // emitFollowups — after every successful sheet write, fire ONE Emilio message
 // that combines the chime + a parenthetical data subtitle, then refresh the
 // pinned status card. Two IPC messages total.
-async function emitFollowups(deps, eventType, confirmText) {
+async function emitFollowups(deps, eventType, confirmText, opts = {}) {
   const token = await deps.getToken();
 
   // Chime + data subtitle, single message in Emilio's voice.
   const state = deps.loadChimeState();
-  const { text: chimeText, newState } = deps.pickChime(eventType, state);
+  const { text: chimeText, newState } = deps.pickChime(eventType, state, opts);
   const combined = confirmText
     ? `${chimeText}\n-# ${confirmText}`
     : chimeText;
@@ -141,7 +165,9 @@ export async function runAsleep({ userId, time }, deps) {
   const result = await deps.openSleep(parsed.iso);
   if (!result.ok) return { ok: false, error: result.error || 'open_sleep failed' };
   const owner = ownerFor(userId);
-  await emitFollowups(deps, 'asleep', `${owner} · ${parsed.displayLocal}`);
+  await emitFollowups(deps, 'asleep', `${owner} · ${parsed.displayLocal}`, {
+    parentRole: parentRoleFor(userId),
+  });
   return { ok: true, reply: `Nap opened at ${parsed.displayLocal}.` };
 }
 
@@ -164,6 +190,7 @@ export async function runAwake({ userId, time }, deps) {
     deps,
     'awake',
     `${owner} · ${parsed.displayLocal} · ${result.durationMin}m nap`,
+    { parentRole: parentRoleFor(userId) },
   );
   return {
     ok: true,
@@ -206,7 +233,7 @@ export async function runFeeding({ userId, amount, time, source }, deps) {
   const owner = ownerFor(userId);
   const srcLabel = src === 'Formula' ? '' : ` ${src}`;
   const confirm = `${owner} · ${n} oz${srcLabel} · ${parsed.displayLocal}${napClosed ? ' · nap closed' : ''}`;
-  await emitFollowups(deps, 'feeding', confirm);
+  await emitFollowups(deps, 'feeding', confirm, { parentRole: parentRoleFor(userId) });
   const reply = `Logged ${n}oz ${src} at ${parsed.displayLocal}.${napClosed ? ' Closed open nap.' : ''}`;
   return { ok: true, reply, napClosed };
 }
@@ -226,7 +253,7 @@ export async function runDiaper({ userId, type, time }, deps) {
 
   const owner = ownerFor(userId);
   const confirm = `${owner} · ${type} · ${parsed.displayLocal}`;
-  await emitFollowups(deps, 'diaper', confirm);
+  await emitFollowups(deps, 'diaper', confirm, { parentRole: parentRoleFor(userId) });
   return { ok: true, reply: `Logged ${type} diaper at ${parsed.displayLocal}.` };
 }
 
@@ -271,11 +298,12 @@ export async function runUpdateFeeding({ userId, amount, row }, deps) {
 
   await deps.updateFeedingAmount(token, { sheetRow: target.sheetRow, amount: n });
   const owner = ownerFor(userId);
-  const tsLabel = target.timestamp.slice(11, 16);
+  const tsLabel = formatSheetTimeOfDay(target.timestamp);
   await emitFollowups(
     deps,
     'feeding_update',
     `${owner} · ${tsLabel} · ${target.amount}oz → ${n}oz`,
+    { parentRole: parentRoleFor(userId) },
   );
   return {
     ok: true,

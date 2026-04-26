@@ -50,10 +50,34 @@ const EVENT_TO_POOL = {
   awake: 'wake',
 };
 
-export function pickChime(eventType, pools, state = { last: {} }) {
+// Parent-specific phrases — used to filter chimes so the wrong parent
+// isn't addressed (e.g. "yummy mama" when Dad logs the feeding).
+// `\b` doesn't handle non-ASCII reliably (papá), so we use lookarounds
+// that allow either an ASCII word boundary OR a non-letter character.
+const MOM_WORDS = /(?:^|[^\p{L}])(mama|mamá|mommy|ma-ma-ma)(?:[^\p{L}]|$)/iu;
+const DAD_WORDS = /(?:^|[^\p{L}])(dada|daddy|papá|papa|da-da-da)(?:[^\p{L}]|$)/iu;
+
+function isAllowedFor(line, parentRole) {
+  // parentRole: 'dad' | 'mom' | null (null = no parent address)
+  if (parentRole === 'dad' && MOM_WORDS.test(line)) return false;
+  if (parentRole === 'mom' && DAD_WORDS.test(line)) return false;
+  if (parentRole === null && (MOM_WORDS.test(line) || DAD_WORDS.test(line))) return false;
+  return true;
+}
+
+export function pickChime(eventType, pools, state = { last: {} }, opts = {}) {
   const poolKey = EVENT_TO_POOL[eventType] ?? 'general';
-  const primary = pools[poolKey] ?? [];
-  const general = pools.general ?? [];
+  const parentRole = opts.parentRole === undefined ? undefined : opts.parentRole;
+  const filterByParent = parentRole !== undefined;
+
+  const primaryRaw = pools[poolKey] ?? [];
+  const generalRaw = pools.general ?? [];
+  const primary = filterByParent
+    ? primaryRaw.filter((l) => isAllowedFor(l, parentRole))
+    : primaryRaw;
+  const general = filterByParent
+    ? generalRaw.filter((l) => isAllowedFor(l, parentRole))
+    : generalRaw;
   const last = state.last?.[poolKey];
 
   const candidates = primary.filter((l) => l !== last);
@@ -64,6 +88,10 @@ export function pickChime(eventType, pools, state = { last: {} }) {
     picked = general[Math.floor(Math.random() * general.length)];
   } else if (primary.length > 0) {
     picked = primary[0]; // last-resort: ignore no-repeat rule
+  } else if (primaryRaw.length > 0) {
+    // Filtered pools both empty — fall back to unfiltered primary so we
+    // never end up with an empty message.
+    picked = primaryRaw[0];
   } else {
     picked = '...';
   }
