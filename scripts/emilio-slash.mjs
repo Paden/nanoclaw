@@ -59,6 +59,18 @@ function ownerFor(userId) {
   return USER_TO_OWNER[userId] || null;
 }
 
+// Parse "YYYY-MM-DD HH:MM:SS" as America/Chicago wall-clock. Derives the
+// active offset (CST/CDT) via Intl so DST is handled without a tz library.
+function parseChicagoTs(str) {
+  const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) throw new Error(`bad timestamp: ${str}`);
+  const probe = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
+  const utcStr = probe.toLocaleString('en-US', { timeZone: 'UTC' });
+  const chiStr = probe.toLocaleString('en-US', { timeZone: 'America/Chicago' });
+  const offsetMin = Math.round((new Date(utcStr) - new Date(chiStr)) / 60_000);
+  return new Date(probe.getTime() + offsetMin * 60_000);
+}
+
 function findOpenNaps(rows) {
   if (!rows || rows.length < 2) return [];
   return rows
@@ -258,16 +270,14 @@ export async function defaultDeps() {
   const { parsePools, pickChime } = await import(
     path.join(ROOT, 'groups', GROUP_FOLDER, 'scripts', 'emilio_chime.mjs')
   );
-  const { getAccessToken } = await import(
+  const sheetsLib = await import(
     path.join(ROOT, 'groups', 'global', 'scripts', 'lib', 'sheets.mjs')
   );
+  const { getAccessToken, readRange, appendRows, updateRange } = sheetsLib;
   const ipc = await import(path.join(ROOT, 'dist', 'ipc-writer.js'));
   const cardMod = await import(
     path.join(ROOT, 'groups', GROUP_FOLDER, 'build_status_card.mjs')
   );
-  const { execFile } = await import('child_process');
-  const { promisify } = await import('util');
-  const execFileP = promisify(execFile);
 
   const voice = fs.existsSync(VOICE_MD_PATH) ? fs.readFileSync(VOICE_MD_PATH, 'utf8') : '';
   const pools = parsePools(voice);
@@ -283,32 +293,44 @@ export async function defaultDeps() {
       return j.values || [];
     },
     openSleep: async (timestamp) => {
-      const { stdout } = await execFileP(
-        'node',
-        [path.join(GROUP_DIR, 'open_sleep.mjs'), timestamp],
-        {
-          env: {
-            ...process.env,
-            WORKSPACE_GROUP: GROUP_DIR,
-            WORKSPACE_GLOBAL: path.join(ROOT, 'groups', 'global'),
-          },
-        },
-      );
-      return JSON.parse(stdout.trim().split('\n').pop());
+      const token = await getAccessToken();
+      const rows = await readRange(SHEET_ID, 'Sleep Log!A2:B2000', { token });
+      const open = (rows || []).find((r) => r[0] && !r[1]);
+      if (open) return { ok: false, error: `Open session at ${open[0]} — close first.` };
+      await appendRows(SHEET_ID, 'Sleep Log!A:B', [[timestamp, '']], { token });
+      return { ok: true, startTime: timestamp };
     },
-    closeSleep: async (timestamp) => {
-      const { stdout } = await execFileP(
-        'node',
-        [path.join(GROUP_DIR, 'close_sleep.mjs'), timestamp],
-        {
-          env: {
-            ...process.env,
-            WORKSPACE_GROUP: GROUP_DIR,
-            WORKSPACE_GLOBAL: path.join(ROOT, 'groups', 'global'),
-          },
-        },
-      );
-      return JSON.parse(stdout.trim().split('\n').pop());
+    closeSleep: async (wakeTimestamp) => {
+      const token = await getAccessToken();
+      const rows = await readRange(SHEET_ID, 'Sleep Log!A2:B2000', { token });
+      const openIdxs = [];
+      (rows || []).forEach((r, i) => {
+        if (r[0] && !r[1]) openIdxs.push(i);
+      });
+      if (openIdxs.length === 0) return { ok: false, error: 'No open sleep session to close.' };
+      if (openIdxs.length > 1) {
+        return {
+          ok: false,
+          error: `${openIdxs.length} open sessions — manual cleanup required.`,
+        };
+      }
+      const idx = openIdxs[0];
+      const startStr = rows[idx][0];
+      const start = parseChicagoTs(startStr);
+      const wake = parseChicagoTs(wakeTimestamp);
+      const durationMin = Math.round((wake - start) / 60_000);
+      if (durationMin < 0) {
+        return { ok: false, error: `Wake time ${wakeTimestamp} is before start ${startStr}.` };
+      }
+      const sheetRow = idx + 2; // header is row 1; A2 starts at index 0
+      await updateRange(SHEET_ID, `Sleep Log!B${sheetRow}`, [[durationMin]], { token });
+      return {
+        ok: true,
+        row: sheetRow,
+        startTime: startStr,
+        wakeTime: wakeTimestamp,
+        durationMin,
+      };
     },
     appendFeeding,
     updateFeedingAmount,
