@@ -1447,12 +1447,12 @@ export class DiscordChannel implements Channel {
     await interaction.editReply(ackLines.join('\n'));
 
     // Public webhook pet ack — only if something actually happened.
+    // Format mirrors the emilio-care fold: pet voice on top, dim data subtitle below.
     if (doneChores.length && result.petName && result.fact) {
-      const factLine = result.totalXp
-        ? `**${result.fact}** · +${result.totalXp} XP`
-        : `**${result.fact}**`;
-      const voiceLine = result.voice ? `> ${result.voice}` : '';
-      const text = voiceLine ? `${factLine}\n${voiceLine}` : factLine;
+      const dataLine = result.totalXp
+        ? `${result.fact} · +${result.totalXp} XP`
+        : result.fact;
+      const text = result.voice ? `${result.voice}\n-# ${dataLine}` : dataLine;
 
       // IPC drop routes through webhook because `sender` matches a persona in
       // groups/discord_silverthorne/webhook_personas.json.
