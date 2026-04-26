@@ -277,9 +277,12 @@ async function main() {
     data.filter((r) => r[2] === userId).map((r) => parseInt(r[4], 10)).filter((n) => Number.isFinite(n)),
   );
 
+  const skipped = new Set(
+    Array.isArray(state.skipped_days) ? state.skipped_days : [],
+  );
   const open = [];
   for (let q = 1; q <= currentQNum; q++) {
-    if (!userAnswered.has(q)) open.push(q);
+    if (!userAnswered.has(q) && !skipped.has(q)) open.push(q);
   }
 
   if (open.length === 0) {
