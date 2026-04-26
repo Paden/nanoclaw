@@ -1,4 +1,5 @@
 import {
+  ActionRowBuilder,
   Client,
   Events,
   GatewayIntentBits,
@@ -9,10 +10,19 @@ import {
   PartialUser,
   Partials,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
+  AutocompleteInteraction,
+  StringSelectMenuInteraction,
   TextChannel,
   User,
   Webhook,
 } from 'discord.js';
+
+import { execFile } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { promisify } from 'util';
 
 import {
   ASSISTANT_NAME,
@@ -30,6 +40,14 @@ import {
   ReactionEvent,
   RegisteredGroup,
 } from '../types.js';
+import {
+  formatWordleReply,
+  formatWordleStatusReply,
+} from '../wordle-keyboard.js';
+import { formatQotdStatusReply } from '../qotd-status.js';
+import { stripCard, fitDiscordReply } from '../state-card.js';
+
+const execFileAsync = promisify(execFile);
 
 export interface DiscordChannelOpts {
   onMessage: OnInboundMessage;
@@ -57,12 +75,9 @@ export class DiscordChannel implements Channel {
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages,
         GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.DirectMessageReactions,
       ],
       partials: [
-        Partials.Channel,
         Partials.Message,
         Partials.User,
         Partials.GuildMember,
@@ -84,6 +99,18 @@ export class DiscordChannel implements Channel {
       // Ignore bot messages (including own)
       if (message.author.bot) return;
 
+      // DMs are outbound-only. The bot only talks INTO DMs (status cards,
+      // announcements, scheduled nudges); inbound DM text is ignored.
+      // Slash commands (/wordle, /qotd, /health) still work because they
+      // arrive via InteractionCreate, not MessageCreate.
+      if (!message.guild) {
+        logger.debug(
+          { channelId: message.channelId, authorId: message.author.id },
+          'Ignoring inbound DM (outbound-only)',
+        );
+        return;
+      }
+
       const channelId = message.channelId;
       const chatJid = `dc:${channelId}`;
       let content = message.content;
@@ -95,14 +122,9 @@ export class DiscordChannel implements Channel {
       const sender = message.author.id;
       const msgId = message.id;
 
-      // Determine chat name
-      let chatName: string;
-      if (message.guild) {
-        const textChannel = message.channel as TextChannel;
-        chatName = `${message.guild.name} #${textChannel.name}`;
-      } else {
-        chatName = senderName;
-      }
+      // Only guild channels reach here (DMs early-returned above).
+      const textChannel = message.channel as TextChannel;
+      const chatName = `${message.guild!.name} #${textChannel.name}`;
 
       // Translate Discord @bot mentions into TRIGGER_PATTERN format.
       // Discord mentions look like <@botUserId> — these won't match
@@ -125,11 +147,6 @@ export class DiscordChannel implements Channel {
             content = `@${ASSISTANT_NAME} ${content}`;
           }
         }
-      }
-
-      // DMs: auto-prepend trigger — in 1:1 chats every message is addressed to the bot
-      if (!message.guild && !TRIGGER_PATTERN.test(content)) {
-        content = `@${ASSISTANT_NAME} ${content}`;
       }
 
       // Handle attachments — store placeholders so the agent knows something was sent
@@ -179,15 +196,8 @@ export class DiscordChannel implements Channel {
         }
       }
 
-      // Store chat metadata for discovery
-      const isGroup = message.guild !== null;
-      this.opts.onChatMetadata(
-        chatJid,
-        timestamp,
-        chatName,
-        'discord',
-        isGroup,
-      );
+      // Store chat metadata for discovery. Always a guild here.
+      this.opts.onChatMetadata(chatJid, timestamp, chatName, 'discord', true);
 
       // Only deliver full message for registered groups
       const group = this.opts.registeredGroups()[chatJid];
@@ -295,53 +305,78 @@ export class DiscordChannel implements Channel {
       handleReaction(reaction, user, 'remove'),
     );
 
-    // Slash command handler — currently just /health. Translates the
-    // interaction into a synthetic "health" message routed through the
-    // normal message pipeline; the reply goes back via the regular
-    // sendMessage() path to the channel, and we acknowledge the
-    // interaction with an ephemeral "running..." so Discord doesn't
-    // time out (3s hard limit on interaction responses).
+    // Slash command handler. /health routes into the normal message pipeline
+    // (synthetic "health" message, reply via sendMessage). /wordle and /qotd
+    // are fully programmatic — they run host-side, reply via
+    // interaction.editReply, and never spawn a container. /qotd may follow up
+    // with an ephemeral StringSelectMenu when the user has 2+ open Qs; that
+    // menu's callback lands here too (isStringSelectMenu).
     this.client.on(
       Events.InteractionCreate,
       async (interaction: Interaction) => {
-        if (!interaction.isChatInputCommand()) return;
-        if (interaction.commandName !== 'health') return;
-
-        try {
-          await interaction.reply({
-            content: '🩺 Running health check...',
-            ephemeral: true,
-          });
-        } catch (err) {
-          logger.warn({ err }, 'Failed to ack /health interaction');
-        }
-
-        const chatJid = `dc:${interaction.channelId}`;
-        const group = this.opts.registeredGroups()[chatJid];
-        if (!group) {
-          try {
-            await interaction.followUp({
-              content: '⚠️ This channel is not registered with Claudio.',
-              ephemeral: true,
-            });
-          } catch {
-            /* ignore */
+        if (interaction.isChatInputCommand()) {
+          if (interaction.commandName === 'health') {
+            await this.handleHealthCommand(interaction);
+            return;
+          }
+          if (interaction.commandName === 'wordle') {
+            await this.handleWordleCommand(interaction);
+            return;
+          }
+          if (interaction.commandName === 'wordle-status') {
+            await this.handleWordleStatusCommand(interaction);
+            return;
+          }
+          if (interaction.commandName === 'qotd') {
+            await this.handleQotdCommand(interaction);
+            return;
+          }
+          if (interaction.commandName === 'qotd-status') {
+            await this.handleQotdStatusCommand(interaction);
+            return;
+          }
+          const stateCmd = DiscordChannel.STATE_CARD_COMMANDS.find(
+            (c) => c.name === interaction.commandName,
+          );
+          if (stateCmd) {
+            await this.handleStateCardCommand(interaction, stateCmd);
+            return;
+          }
+          if (interaction.commandName === 'calendar') {
+            await this.handleCalendarCommand(interaction);
+            return;
+          }
+          if (interaction.commandName === 'chore') {
+            await this.handleChoreCommand(interaction);
+            return;
+          }
+          if (
+            interaction.commandName === 'asleep' ||
+            interaction.commandName === 'awake' ||
+            interaction.commandName === 'feeding' ||
+            interaction.commandName === 'update-feeding'
+          ) {
+            await this.handleEmilioSlashCommand(interaction);
+            return;
           }
           return;
         }
-
-        this.opts.onMessage(chatJid, {
-          id: `slash-health-${Date.now()}`,
-          chat_jid: chatJid,
-          sender: interaction.user.id,
-          sender_name:
-            interaction.user.globalName ||
-            interaction.user.username ||
-            'Unknown',
-          content: `@${ASSISTANT_NAME} health`,
-          timestamp: new Date().toISOString(),
-          is_from_me: false,
-        });
+        if (interaction.isAutocomplete()) {
+          if (interaction.commandName === 'chore') {
+            await this.handleChoreAutocomplete(interaction);
+            return;
+          }
+          if (interaction.commandName === 'update-feeding') {
+            await this.handleEmilioUpdateFeedingAutocomplete(interaction);
+            return;
+          }
+        }
+        if (interaction.isStringSelectMenu()) {
+          if (interaction.customId.startsWith('qotd:pick:')) {
+            await this.handleQotdSelect(interaction);
+            return;
+          }
+        }
       },
     );
 
@@ -372,6 +407,140 @@ export class DiscordChannel implements Channel {
                 'Run Claudio health check (containers, tasks, sheets, disk)',
               )
               .toJSON(),
+            new SlashCommandBuilder()
+              .setName('wordle')
+              .setDescription(
+                'Submit a 5-letter Wordle guess (#family-fun only)',
+              )
+              .addStringOption((opt) =>
+                opt
+                  .setName('word')
+                  .setDescription('Your 5-letter guess')
+                  .setRequired(true)
+                  .setMinLength(5)
+                  .setMaxLength(5),
+              )
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('wordle-status')
+              .setDescription("Show today's Wordle progress (#family-fun only)")
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('qotd')
+              .setDescription(
+                'Answer a panda question of the day (#panda only)',
+              )
+              .addStringOption((opt) =>
+                opt
+                  .setName('answer')
+                  .setDescription('Your answer')
+                  .setRequired(true)
+                  .setMinLength(1)
+                  .setMaxLength(1500),
+              )
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('qotd-status')
+              .setDescription(
+                'Show panda questions still waiting for you (#panda only)',
+              )
+              .toJSON(),
+            ...DiscordChannel.STATE_CARD_COMMANDS.map((c) =>
+              new SlashCommandBuilder()
+                .setName(c.name)
+                .setDescription(c.description)
+                .toJSON(),
+            ),
+            new SlashCommandBuilder()
+              .setName('calendar')
+              .setDescription("Show today's calendar agenda (#panda only)")
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('chore')
+              .setDescription(
+                'Check off a silverthorne chore (#silverthorne only)',
+              )
+              .addStringOption((opt) =>
+                opt
+                  .setName('chore')
+                  .setDescription('Pick a chore from the autocomplete list')
+                  .setRequired(true)
+                  .setAutocomplete(true),
+              )
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('asleep')
+              .setDescription('Log Emilio falling asleep (#emilio-care)')
+              .addStringOption((opt) =>
+                opt
+                  .setName('time')
+                  .setDescription(
+                    'Optional: 5m, 2:30pm, 14:30. Defaults to now.',
+                  )
+                  .setRequired(false),
+              )
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('awake')
+              .setDescription('Close the open nap (#emilio-care)')
+              .addStringOption((opt) =>
+                opt
+                  .setName('time')
+                  .setDescription(
+                    'Optional: 5m, 2:30pm, 14:30. Defaults to now.',
+                  )
+                  .setRequired(false),
+              )
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('feeding')
+              .setDescription('Log a feeding (#emilio-care)')
+              .addNumberOption((opt) =>
+                opt
+                  .setName('amount')
+                  .setDescription('Ounces, e.g. 2.5')
+                  .setMinValue(0.1)
+                  .setMaxValue(20)
+                  .setRequired(true),
+              )
+              .addStringOption((opt) =>
+                opt
+                  .setName('time')
+                  .setDescription(
+                    'Optional: 5m, 2:30pm, 14:30. Defaults to now.',
+                  )
+                  .setRequired(false),
+              )
+              .addStringOption((opt) =>
+                opt
+                  .setName('source')
+                  .setDescription('Source (default Formula)')
+                  .setRequired(false)
+                  .addChoices(
+                    { name: 'Formula', value: 'Formula' },
+                    { name: 'Breast', value: 'Breast' },
+                  ),
+              )
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('update-feeding')
+              .setDescription('Correct a recent feeding amount (#emilio-care)')
+              .addNumberOption((opt) =>
+                opt
+                  .setName('amount')
+                  .setDescription('Corrected oz')
+                  .setMinValue(0.1)
+                  .setMaxValue(20)
+                  .setRequired(true),
+              )
+              .addStringOption((opt) =>
+                opt
+                  .setName('row')
+                  .setDescription('Which feeding (autocomplete shows last 5)')
+                  .setRequired(false)
+                  .setAutocomplete(true),
+              )
+              .toJSON(),
           ];
           await readyClient.application.commands.set(commands);
           logger.info(
@@ -382,30 +551,1123 @@ export class DiscordChannel implements Channel {
           logger.error({ err }, 'Failed to register Discord slash commands');
         }
 
-        // Pre-cache DM channels so MessageCreate fires reliably.
-        // discord.js doesn't auto-cache DM channels on connect, so
-        // without this, DM events silently fail until the channel
-        // is fetched at least once.
-        const groups = this.opts.registeredGroups();
-        for (const [jid, group] of Object.entries(groups)) {
-          if (!group.isDm) continue;
-          const channelId = jid.replace('dc:', '');
-          try {
-            await readyClient.channels.fetch(channelId);
-            logger.info({ channelId }, 'Pre-cached DM channel');
-          } catch (err) {
-            logger.warn(
-              { channelId, err: (err as Error).message },
-              'Failed to pre-cache DM channel',
-            );
-          }
-        }
-
         resolve();
       });
 
       this.client!.login(this.botToken);
     });
+  }
+
+  private async handleHealthCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.reply({
+        content: '🩺 Running health check...',
+        ephemeral: true,
+      });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to ack /health interaction');
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group) {
+      try {
+        await interaction.followUp({
+          content: '⚠️ This channel is not registered with Claudio.',
+          ephemeral: true,
+        });
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    this.opts.onMessage(chatJid, {
+      id: `slash-health-${Date.now()}`,
+      chat_jid: chatJid,
+      sender: interaction.user.id,
+      sender_name:
+        interaction.user.globalName || interaction.user.username || 'Unknown',
+      content: `@${ASSISTANT_NAME} health`,
+      timestamp: new Date().toISOString(),
+      is_from_me: false,
+    });
+  }
+
+  private async handleWordleCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    // Defer immediately — the subprocess + sheets round-trip can exceed the
+    // 3-second interaction reply window. Ephemeral so only the guesser sees.
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to defer /wordle interaction');
+      return;
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group) {
+      await interaction.editReply('⚠️ This channel is not registered.');
+      return;
+    }
+    if (group.folder !== 'discord_family-fun') {
+      await interaction.editReply(
+        '⚠️ `/wordle` is only available in #family-fun.',
+      );
+      return;
+    }
+
+    const rawGuess = interaction.options.getString('word', true);
+    const guess = rawGuess.trim();
+    if (!/^[A-Za-z]{5}$/.test(guess)) {
+      await interaction.editReply(
+        `⚠️ "${rawGuess}" isn't a 5-letter word (letters only).`,
+      );
+      return;
+    }
+
+    // Attribute the guess to the invoking player via their Discord ID.
+    const player = DiscordChannel.PLAYER_NAMES[interaction.user.id];
+    if (!player) {
+      await interaction.editReply(
+        "⚠️ You're not a registered Saga Wordle player.",
+      );
+      return;
+    }
+
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'scripts',
+      'wordle-slash.mjs',
+    );
+    let stdout: string;
+    try {
+      const res = await execFileAsync(
+        'node',
+        [
+          scriptPath,
+          player,
+          guess,
+          group.folder,
+          interaction.user.id,
+          interaction.channelId,
+        ],
+        { timeout: 20_000, maxBuffer: 1_000_000 },
+      );
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      logger.error(
+        {
+          err: e.message,
+          stdout: e.stdout,
+          stderr: e.stderr,
+          player,
+          guess,
+          folder: group.folder,
+        },
+        'wordle-slash.mjs failed',
+      );
+      await interaction.editReply(
+        `⚠️ Scoring failed: ${e.message || 'unknown error'}`,
+      );
+      return;
+    }
+
+    let result: {
+      ok?: boolean;
+      status?: string;
+      message?: string;
+      history?: Array<{ guess: string; grid: string }>;
+      solved?: boolean;
+      guess_num?: number;
+      budget?: number;
+      word?: string;
+      submission_audit_error?: string;
+    };
+    try {
+      const lastLine = stdout.trim().split('\n').pop() || '{}';
+      result = JSON.parse(lastLine);
+    } catch (err) {
+      logger.error({ err, stdout }, 'wordle-slash.mjs returned non-JSON');
+      await interaction.editReply('⚠️ Scoring returned unparseable output.');
+      return;
+    }
+
+    if (result.submission_audit_error) {
+      logger.warn(
+        { err: result.submission_audit_error, player, guess },
+        'Wordle submissions audit append failed',
+      );
+    }
+
+    const reply = formatWordleReply({
+      status: result.status || 'error',
+      message: result.message,
+      history: result.history,
+      solved: result.solved,
+      guess_num: result.guess_num,
+      budget: result.budget,
+      word: result.word,
+    });
+
+    await interaction.editReply(reply);
+    logger.info(
+      {
+        player,
+        guess: guess.toUpperCase(),
+        status: result.status,
+        solved: result.solved,
+        guessNum: result.guess_num,
+      },
+      'Wordle slash command scored',
+    );
+  }
+
+  private async handleWordleStatusCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to defer /wordle-status interaction');
+      return;
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group) {
+      await interaction.editReply('⚠️ This channel is not registered.');
+      return;
+    }
+    if (group.folder !== 'discord_family-fun') {
+      await interaction.editReply(
+        '⚠️ `/wordle-status` is only available in #family-fun.',
+      );
+      return;
+    }
+
+    const player = DiscordChannel.PLAYER_NAMES[interaction.user.id];
+    if (!player) {
+      await interaction.editReply(
+        "⚠️ You're not a registered Saga Wordle player.",
+      );
+      return;
+    }
+
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'scripts',
+      'wordle-status-slash.mjs',
+    );
+    let stdout: string;
+    try {
+      const res = await execFileAsync('node', [scriptPath, player], {
+        timeout: 20_000,
+        maxBuffer: 1_000_000,
+      });
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      logger.error(
+        { err: e.message, stdout: e.stdout, stderr: e.stderr, player },
+        'wordle-status-slash.mjs failed',
+      );
+      await interaction.editReply(
+        `⚠️ Status lookup failed: ${e.message || 'unknown error'}`,
+      );
+      return;
+    }
+
+    let result: {
+      ok?: boolean;
+      status?: string;
+      message?: string;
+      history?: Array<{ guess: string; grid: string }>;
+      budget?: number;
+      solved?: boolean;
+      word?: string;
+    };
+    try {
+      const lastLine = stdout.trim().split('\n').pop() || '{}';
+      result = JSON.parse(lastLine);
+    } catch (err) {
+      logger.error(
+        { err, stdout },
+        'wordle-status-slash.mjs returned non-JSON',
+      );
+      await interaction.editReply('⚠️ Status returned unparseable output.');
+      return;
+    }
+
+    const reply = formatWordleStatusReply({
+      status: result.status || 'error',
+      message: result.message,
+      history: result.history,
+      budget: result.budget,
+      solved: result.solved,
+      word: result.word,
+    });
+
+    await interaction.editReply(reply);
+    logger.info(
+      {
+        player,
+        status: result.status,
+        guesses: result.history?.length,
+        solved: result.solved,
+      },
+      'Wordle status slash command ran',
+    );
+  }
+
+  // --- /qotd ---
+
+  // Panda question-of-the-day intake. Deterministic, host-side:
+  //   discovery → 0 open Qs  → "caught_up"
+  //              → 1 open Q   → append directly
+  //              → 2+ open Qs → return ephemeral StringSelectMenu
+  //   forced-Q  → append directly (post-menu pick)
+  //
+  // Allowlist: Paden + Brenda only (no Danny). Pending-menu state is kept in
+  // an in-memory Map keyed by a short custom_id token; entries self-expire.
+  private qotdPending = new Map<
+    string,
+    { userId: string; player: string; answer: string; expiresAt: number }
+  >();
+
+  private static readonly QOTD_ALLOWED_USER_IDS = new Set([
+    '181867944404320256', // Paden
+    '350815183804825600', // Brenda
+  ]);
+
+  // Discord user ID → player display name. Used by /wordle (family-fun) and
+  // /qotd (panda) to attribute submissions once we no longer derive the name
+  // from a DM folder slug.
+  private static readonly PLAYER_NAMES: Record<string, string> = {
+    '181867944404320256': 'Paden',
+    '350815183804825600': 'Brenda',
+    '280744944358916097': 'Danny',
+  };
+
+  // Read-only state cards. Each entry wires a slash command to the group's
+  // existing build_status_card.mjs, which already produces the agent's pinned
+  // card output. The slash variant strips the trailing AGENT REF section and
+  // replies ephemerally — no container wake, no card edit.
+  private static readonly STATE_CARD_COMMANDS: Array<{
+    name: string;
+    description: string;
+    folder: string;
+    scriptPath: string;
+  }> = [
+    {
+      name: 'emilio',
+      description: "Show Emilio's today snapshot (#emilio-care only)",
+      folder: 'discord_emilio-care',
+      scriptPath: 'groups/discord_emilio-care/build_status_card.mjs',
+    },
+    {
+      name: 'chore-status',
+      description:
+        'Show the silverthorne chore + pet status card (#silverthorne only)',
+      folder: 'discord_silverthorne',
+      scriptPath: 'groups/discord_silverthorne/build_status_card.mjs',
+    },
+    {
+      name: 'pumps',
+      description: 'Show the pumping status card (#liquid-gold only)',
+      folder: 'discord_liquid-gold',
+      scriptPath: 'groups/discord_liquid-gold/build_status_card.mjs',
+    },
+  ];
+
+  private async handleQotdCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to defer /qotd interaction');
+      return;
+    }
+
+    if (!DiscordChannel.QOTD_ALLOWED_USER_IDS.has(interaction.user.id)) {
+      await interaction.editReply(
+        '⚠️ `/qotd` is just for Paden and Brenda — panda game is theirs.',
+      );
+      return;
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group) {
+      await interaction.editReply('⚠️ This channel is not registered.');
+      return;
+    }
+    if (group.folder !== 'discord_parents') {
+      await interaction.editReply('⚠️ `/qotd` is only available in #panda.');
+      return;
+    }
+
+    const answer = interaction.options.getString('answer', true).trim();
+    if (!answer) {
+      await interaction.editReply('⚠️ Answer was empty.');
+      return;
+    }
+
+    const player = DiscordChannel.PLAYER_NAMES[interaction.user.id];
+    if (!player) {
+      await interaction.editReply("⚠️ You're not a registered panda player.");
+      return;
+    }
+
+    const result = await this.runQotdScript([
+      player,
+      interaction.user.id,
+      answer,
+    ]);
+    if (!result) {
+      await interaction.editReply('⚠️ Scoring returned unparseable output.');
+      return;
+    }
+
+    if (result.ok === false || result.status === 'error') {
+      await interaction.editReply(
+        `⚠️ ${result.message || 'Something went wrong recording that.'}`,
+      );
+      return;
+    }
+
+    if (result.status === 'caught_up') {
+      await interaction.editReply(
+        result.message ||
+          "You're all caught up — no open panda Qs for you right now.",
+      );
+      return;
+    }
+
+    if (result.status === 'appended') {
+      await interaction.editReply(
+        `✅ Logged for Q${result.qNum} — _${result.question}_`,
+      );
+      return;
+    }
+
+    if (result.status === 'needs_choice' && Array.isArray(result.candidates)) {
+      const token = `${Date.now().toString(36)}${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      this.pruneQotdPending();
+      this.qotdPending.set(token, {
+        userId: interaction.user.id,
+        player,
+        answer,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      });
+
+      const select = new StringSelectMenuBuilder()
+        .setCustomId(`qotd:pick:${token}`)
+        .setPlaceholder('Which question did you just answer?')
+        .addOptions(
+          result.candidates.slice(0, 25).map((c) => ({
+            label: `Q${c.qNum}`.slice(0, 100),
+            description: (c.question || '').slice(0, 100),
+            value: String(c.qNum),
+          })),
+        );
+      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        select,
+      );
+
+      await interaction.editReply({
+        content: `You have ${result.candidates.length} open panda Qs — which one does this answer go to?`,
+        components: [row],
+      });
+      return;
+    }
+
+    await interaction.editReply(
+      `⚠️ Unexpected response: ${JSON.stringify(result)}`,
+    );
+  }
+
+  private async handleQotdSelect(
+    interaction: StringSelectMenuInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferUpdate();
+    } catch (err) {
+      logger.warn({ err }, 'Failed to deferUpdate qotd select');
+      return;
+    }
+
+    const token = interaction.customId.replace(/^qotd:pick:/, '');
+    this.pruneQotdPending();
+    const pending = this.qotdPending.get(token);
+    if (!pending) {
+      await interaction.editReply({
+        content: '⚠️ That picker expired — rerun `/qotd` with your answer.',
+        components: [],
+      });
+      return;
+    }
+    if (pending.userId !== interaction.user.id) {
+      await interaction.editReply({
+        content: "⚠️ That picker isn't yours.",
+        components: [],
+      });
+      return;
+    }
+    this.qotdPending.delete(token);
+
+    const qNum = interaction.values[0];
+    const result = await this.runQotdScript([
+      pending.player,
+      pending.userId,
+      pending.answer,
+      qNum,
+    ]);
+    if (!result || result.ok === false || result.status === 'error') {
+      await interaction.editReply({
+        content: `⚠️ ${result?.message || 'Failed to record that answer.'}`,
+        components: [],
+      });
+      return;
+    }
+
+    await interaction.editReply({
+      content: `✅ Logged for Q${result.qNum} — _${result.question}_`,
+      components: [],
+    });
+  }
+
+  private async handleQotdStatusCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to defer /qotd-status interaction');
+      return;
+    }
+
+    if (!DiscordChannel.QOTD_ALLOWED_USER_IDS.has(interaction.user.id)) {
+      await interaction.editReply(
+        '⚠️ `/qotd-status` is just for Paden and Brenda.',
+      );
+      return;
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group) {
+      await interaction.editReply('⚠️ This channel is not registered.');
+      return;
+    }
+    if (group.folder !== 'discord_parents') {
+      await interaction.editReply(
+        '⚠️ `/qotd-status` is only available in #panda.',
+      );
+      return;
+    }
+
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'scripts',
+      'qotd-status-slash.mjs',
+    );
+    let stdout: string;
+    try {
+      const res = await execFileAsync(
+        'node',
+        [scriptPath, interaction.user.id],
+        { timeout: 20_000, maxBuffer: 1_000_000 },
+      );
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      logger.error(
+        {
+          err: e.message,
+          stdout: e.stdout,
+          stderr: e.stderr,
+          userId: interaction.user.id,
+        },
+        'qotd-status-slash.mjs failed',
+      );
+      await interaction.editReply(
+        `⚠️ Status lookup failed: ${e.message || 'unknown error'}`,
+      );
+      return;
+    }
+
+    let result: {
+      ok?: boolean;
+      status?: string;
+      message?: string;
+      currentQNum?: number;
+      currentDay?: number;
+      today?: string;
+      open?: Array<{
+        qNum: number;
+        day: number;
+        date: string;
+        question: string;
+      }>;
+      skippedOpen?: Array<{
+        qNum: number;
+        day: number;
+        date: string;
+        question: string;
+      }>;
+      totalAnswered?: number;
+    };
+    try {
+      const lastLine = stdout.trim().split('\n').pop() || '{}';
+      result = JSON.parse(lastLine);
+    } catch (err) {
+      logger.error({ err, stdout }, 'qotd-status-slash.mjs returned non-JSON');
+      await interaction.editReply('⚠️ Status returned unparseable output.');
+      return;
+    }
+
+    const reply = formatQotdStatusReply({
+      status: result.status || 'error',
+      message: result.message,
+      currentQNum: result.currentQNum,
+      currentDay: result.currentDay,
+      today: result.today,
+      open: result.open,
+      skippedOpen: result.skippedOpen,
+      totalAnswered: result.totalAnswered,
+    });
+
+    await interaction.editReply(reply);
+    logger.info(
+      {
+        userId: interaction.user.id,
+        status: result.status,
+        open: result.open?.length,
+        currentQNum: result.currentQNum,
+      },
+      'Qotd status slash command ran',
+    );
+  }
+
+  private async handleStateCardCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+    cfg: (typeof DiscordChannel.STATE_CARD_COMMANDS)[number],
+  ): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn({ err }, `Failed to defer /${cfg.name} interaction`);
+      return;
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group) {
+      await interaction.editReply('⚠️ This channel is not registered.');
+      return;
+    }
+    if (group.folder !== cfg.folder) {
+      await interaction.editReply(
+        `⚠️ \`/${cfg.name}\` is only available in the ${cfg.folder.replace(/^discord_/, '#')} channel.`,
+      );
+      return;
+    }
+
+    const scriptPath = path.resolve(process.cwd(), cfg.scriptPath);
+    let stdout: string;
+    try {
+      const res = await execFileAsync('node', [scriptPath], {
+        timeout: 20_000,
+        maxBuffer: 2_000_000,
+        env: {
+          ...process.env,
+          // Route sheets.mjs at the host-local OAuth artifacts, same as
+          // wordle-slash / qotd-slash wrappers do.
+          GOOGLE_OAUTH_CREDENTIALS:
+            process.env.GOOGLE_OAUTH_CREDENTIALS ||
+            path.resolve(
+              process.cwd(),
+              'data',
+              'google-calendar',
+              'gcp-oauth.keys.json',
+            ),
+          GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+            process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
+            path.resolve(
+              os.homedir(),
+              '.config',
+              'google-calendar-mcp',
+              'tokens.json',
+            ),
+        },
+      });
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      logger.error(
+        {
+          err: e.message,
+          stdout: e.stdout,
+          stderr: e.stderr,
+          script: cfg.scriptPath,
+        },
+        `/${cfg.name} script failed`,
+      );
+      await interaction.editReply(
+        `⚠️ Status lookup failed: ${e.message || 'unknown error'}`,
+      );
+      return;
+    }
+
+    const card = stripCard(stdout);
+    if (!card) {
+      await interaction.editReply('⚠️ Card script returned empty output.');
+      return;
+    }
+    await interaction.editReply(fitDiscordReply(card));
+    logger.info(
+      { command: cfg.name, folder: cfg.folder, cardLength: card.length },
+      'State-card slash command ran',
+    );
+  }
+
+  private async handleCalendarCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to defer /calendar interaction');
+      return;
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group) {
+      await interaction.editReply('⚠️ This channel is not registered.');
+      return;
+    }
+    if (group.folder !== 'discord_parents') {
+      await interaction.editReply(
+        '⚠️ `/calendar` is only available in #panda.',
+      );
+      return;
+    }
+
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'scripts',
+      'calendar-slash.mjs',
+    );
+    let stdout: string;
+    try {
+      const res = await execFileAsync('node', [scriptPath], {
+        timeout: 20_000,
+        maxBuffer: 2_000_000,
+      });
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      logger.error(
+        { err: e.message, stdout: e.stdout, stderr: e.stderr },
+        '/calendar script failed',
+      );
+      await interaction.editReply(
+        `⚠️ Calendar lookup failed: ${e.message || 'unknown error'}`,
+      );
+      return;
+    }
+    const card = stdout.replace(/\s+$/, '');
+    if (!card) {
+      await interaction.editReply('⚠️ Calendar script returned empty output.');
+      return;
+    }
+    await interaction.editReply(fitDiscordReply(card));
+    logger.info({ cardLength: card.length }, '/calendar slash command ran');
+  }
+
+  private async handleChoreAutocomplete(
+    interaction: AutocompleteInteraction,
+  ): Promise<void> {
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group || group.folder !== 'discord_silverthorne') {
+      try {
+        await interaction.respond([]);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    const focused = interaction.options.getFocused();
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'scripts',
+      'chore-slash.mjs',
+    );
+    try {
+      const res = await execFileAsync(
+        'node',
+        [scriptPath, 'autocomplete', interaction.user.id, focused],
+        { timeout: 2500, maxBuffer: 1_000_000 },
+      );
+      const lastLine = res.stdout.trim().split('\n').pop() || '{}';
+      const parsed = JSON.parse(lastLine) as {
+        ok?: boolean;
+        options?: Array<{ value: string; label: string }>;
+      };
+      const choices = (parsed.options || []).slice(0, 25).map((o) => ({
+        // Discord caps each at 100 chars
+        name: o.label.slice(0, 100),
+        value: o.value.slice(0, 100),
+      }));
+      await interaction.respond(choices);
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message, userId: interaction.user.id },
+        'chore autocomplete failed; returning empty choices',
+      );
+      try {
+        await interaction.respond([]);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async handleChoreCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to defer /chore interaction');
+      return;
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group) {
+      await interaction.editReply('⚠️ This channel is not registered.');
+      return;
+    }
+    if (group.folder !== 'discord_silverthorne') {
+      await interaction.editReply(
+        '⚠️ `/chore` is only available in #silverthorne.',
+      );
+      return;
+    }
+
+    const value = interaction.options.getString('chore', true);
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'scripts',
+      'chore-slash.mjs',
+    );
+    let stdout: string;
+    try {
+      const res = await execFileAsync(
+        'node',
+        [scriptPath, 'submit', interaction.user.id, value],
+        { timeout: 25_000, maxBuffer: 2_000_000 },
+      );
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      logger.error(
+        {
+          err: e.message,
+          stdout: e.stdout,
+          stderr: e.stderr,
+          userId: interaction.user.id,
+          value,
+        },
+        '/chore submit failed',
+      );
+      await interaction.editReply(
+        `⚠️ Chore log failed: ${e.message || 'unknown error'}`,
+      );
+      return;
+    }
+
+    let result: {
+      ok?: boolean;
+      error?: string;
+      doneBy?: string;
+      petName?: string;
+      fact?: string;
+      voice?: string;
+      totalXp?: number;
+      chores?: Array<{
+        chore_id: string;
+        name?: string;
+        xp?: number;
+        skipped?: string;
+        error?: string;
+      }>;
+    };
+    try {
+      const lastLine = stdout.trim().split('\n').pop() || '{}';
+      result = JSON.parse(lastLine);
+    } catch (err) {
+      logger.error({ err, stdout }, '/chore-slash returned non-JSON');
+      await interaction.editReply('⚠️ Chore log returned unparseable output.');
+      return;
+    }
+
+    if (!result.ok) {
+      await interaction.editReply(
+        `⚠️ ${result.error || 'something went wrong'}`,
+      );
+      return;
+    }
+
+    // Ephemeral confirmation to the clicker
+    const doneChores = (result.chores || []).filter((c) => c.xp && !c.skipped);
+    const skippedChores = (result.chores || []).filter((c) => c.skipped);
+    const ackLines: string[] = [];
+    if (doneChores.length) {
+      for (const c of doneChores) {
+        ackLines.push(`✅ ${c.name} · +${c.xp} XP`);
+      }
+    }
+    for (const c of skippedChores) {
+      ackLines.push(`↩ ${c.name} · already logged`);
+    }
+    if (!ackLines.length) ackLines.push('Nothing new to log.');
+    await interaction.editReply(ackLines.join('\n'));
+
+    // Public webhook pet ack — only if something actually happened.
+    if (doneChores.length && result.petName && result.fact) {
+      const factLine = result.totalXp
+        ? `**${result.fact}** · +${result.totalXp} XP`
+        : `**${result.fact}**`;
+      const voiceLine = result.voice ? `> ${result.voice}` : '';
+      const text = voiceLine ? `${factLine}\n${voiceLine}` : factLine;
+
+      // IPC drop routes through webhook because `sender` matches a persona in
+      // groups/discord_silverthorne/webhook_personas.json.
+      const ipcFile = path.resolve(
+        process.cwd(),
+        'data',
+        'ipc',
+        'discord_silverthorne',
+        'messages',
+        `chore-ack-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`,
+      );
+      try {
+        await fs.promises.writeFile(
+          ipcFile,
+          JSON.stringify({
+            type: 'message',
+            chatJid,
+            sender: result.petName,
+            text,
+          }),
+        );
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error).message, ipcFile },
+          'Failed to drop pet webhook IPC for /chore',
+        );
+      }
+    }
+
+    logger.info(
+      {
+        userId: interaction.user.id,
+        value,
+        doneCount: doneChores.length,
+        totalXp: result.totalXp,
+      },
+      '/chore slash command ran',
+    );
+  }
+
+  private async handleEmilioSlashCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn(
+        { err, command: interaction.commandName },
+        'Failed to defer Emilio slash interaction',
+      );
+      return;
+    }
+
+    const userId = interaction.user.id;
+    const args: string[] = [];
+    if (
+      interaction.commandName === 'asleep' ||
+      interaction.commandName === 'awake'
+    ) {
+      args.push(interaction.options.getString('time') || '');
+    } else if (interaction.commandName === 'feeding') {
+      args.push(String(interaction.options.getNumber('amount', true)));
+      args.push(interaction.options.getString('time') || '');
+      args.push(interaction.options.getString('source') || '');
+    } else {
+      // update-feeding
+      args.push(String(interaction.options.getNumber('amount', true)));
+      args.push(interaction.options.getString('row') || '');
+    }
+
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'scripts',
+      'emilio-slash.mjs',
+    );
+    let stdout: string;
+    try {
+      const res = await execFileAsync(
+        'node',
+        [scriptPath, interaction.commandName, userId, ...args],
+        { timeout: 30_000, maxBuffer: 1_000_000 },
+      );
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      logger.error(
+        {
+          err: e.message,
+          stdout: e.stdout,
+          stderr: e.stderr,
+          userId,
+          command: interaction.commandName,
+          args,
+        },
+        'emilio-slash.mjs failed',
+      );
+      await interaction.editReply(
+        `⚠️ slash error: ${e.message || 'unknown error'}`,
+      );
+      return;
+    }
+
+    let result: { ok?: boolean; reply?: string; error?: string };
+    try {
+      const lastLine = stdout.trim().split('\n').pop() || '{}';
+      result = JSON.parse(lastLine);
+    } catch (err) {
+      logger.error(
+        { err, stdout, command: interaction.commandName },
+        'emilio-slash returned non-JSON',
+      );
+      await interaction.editReply('⚠️ slash returned unparseable output.');
+      return;
+    }
+
+    if (result.ok) {
+      await interaction.editReply(result.reply || 'Done.');
+    } else {
+      await interaction.editReply(`⚠️ ${result.error || 'Unknown error'}`);
+    }
+
+    logger.info(
+      {
+        userId,
+        command: interaction.commandName,
+        ok: result.ok,
+      },
+      'emilio slash command ran',
+    );
+  }
+
+  private async handleEmilioUpdateFeedingAutocomplete(
+    interaction: AutocompleteInteraction,
+  ): Promise<void> {
+    const focused = interaction.options.getFocused(true);
+    if (focused.name !== 'row') {
+      try {
+        await interaction.respond([]);
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'scripts',
+      'emilio-slash.mjs',
+    );
+    try {
+      const res = await execFileAsync(
+        'node',
+        [scriptPath, 'autocomplete-feeding-row', interaction.user.id],
+        { timeout: 5_000, maxBuffer: 200_000 },
+      );
+      const lastLine = res.stdout.trim().split('\n').pop() || '{}';
+      const parsed = JSON.parse(lastLine) as {
+        ok?: boolean;
+        options?: Array<{ value: string; label: string }>;
+      };
+      const choices = (parsed.options || []).slice(0, 25).map((o) => ({
+        name: o.label.slice(0, 100),
+        value: o.value.slice(0, 100),
+      }));
+      await interaction.respond(choices);
+    } catch (err) {
+      logger.warn(
+        { err: (err as Error).message, userId: interaction.user.id },
+        'update-feeding autocomplete failed; returning empty choices',
+      );
+      try {
+        await interaction.respond([]);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private pruneQotdPending(): void {
+    const now = Date.now();
+    for (const [token, entry] of this.qotdPending) {
+      if (entry.expiresAt < now) this.qotdPending.delete(token);
+    }
+  }
+
+  private async runQotdScript(args: string[]): Promise<{
+    ok?: boolean;
+    status?: string;
+    message?: string;
+    qNum?: number;
+    question?: string;
+    candidates?: Array<{ qNum: number; question: string }>;
+  } | null> {
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'qotd-slash.mjs');
+    let stdout: string;
+    try {
+      const res = await execFileAsync('node', [scriptPath, ...args], {
+        timeout: 20_000,
+        maxBuffer: 1_000_000,
+      });
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      logger.error(
+        { err: e.message, stdout: e.stdout, stderr: e.stderr, args },
+        'qotd-slash.mjs failed',
+      );
+      return null;
+    }
+    try {
+      const lastLine = stdout.trim().split('\n').pop() || '{}';
+      return JSON.parse(lastLine);
+    } catch (err) {
+      logger.error({ err, stdout }, 'qotd-slash.mjs returned non-JSON');
+      return null;
+    }
   }
 
   async sendMessage(jid: string, text: string): Promise<void> {
@@ -573,22 +1835,51 @@ export class DiscordChannel implements Channel {
     username: string,
     avatarURL?: string,
   ): Promise<string | undefined> {
-    if (!this.client?.user) return undefined;
+    if (!this.client?.user) {
+      logger.warn(
+        { jid, username },
+        'Discord webhook skipped: client not ready',
+      );
+      return undefined;
+    }
     try {
       const channelId = jid.replace(/^dc:/, '');
       const channel = await this.client.channels.fetch(channelId);
-      if (!channel || !('fetchWebhooks' in channel)) return undefined;
+      if (!channel) {
+        logger.warn(
+          { jid, username, channelId },
+          'Discord webhook skipped: channel fetch returned null',
+        );
+        return undefined;
+      }
+      if (!('fetchWebhooks' in channel)) {
+        logger.warn(
+          { jid, username, channelId, channelType: channel.type },
+          'Discord webhook skipped: channel does not support webhooks',
+        );
+        return undefined;
+      }
       const textChannel = channel as TextChannel;
 
       // Lazily create or reuse a shared webhook per channel
       let webhook = this.webhookCache.get(channelId);
       if (!webhook) {
         const existing = await textChannel.fetchWebhooks();
-        webhook = existing.find(
-          (w) =>
-            w.name === 'NanoClaw Pets' && w.owner?.id === this.client!.user!.id,
+        const ownHooks = existing.filter(
+          (w) => w.owner?.id === this.client!.user!.id,
         );
+        webhook = ownHooks.find((w) => w.name === 'NanoClaw Pets');
         if (!webhook) {
+          logger.info(
+            {
+              jid,
+              channelId,
+              existingCount: existing.size,
+              ownCount: ownHooks.size,
+              existingNames: existing.map((w) => w.name),
+            },
+            'Discord webhook: creating new NanoClaw Pets hook',
+          );
           webhook = await textChannel.createWebhook({
             name: 'NanoClaw Pets',
           });
