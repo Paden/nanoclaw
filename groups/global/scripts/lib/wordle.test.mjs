@@ -7,7 +7,38 @@ import {
   determineWinner,
   computeDayStakes,
   renderCard,
+  stageToBudget,
 } from './wordle.mjs';
+
+describe('stageToBudget', () => {
+  it('maps Egg and Hatchling to 7 guesses', () => {
+    expect(stageToBudget(0)).toBe(7);
+    expect(stageToBudget(1)).toBe(7);
+  });
+  it('maps Critter and Beast to 6 guesses', () => {
+    expect(stageToBudget(2)).toBe(6);
+    expect(stageToBudget(3)).toBe(6);
+  });
+  it('maps Spirit and Elemental to 5 guesses', () => {
+    expect(stageToBudget(4)).toBe(5);
+    expect(stageToBudget(5)).toBe(5);
+  });
+  it('maps Chimera and Wyrm to 4 guesses', () => {
+    expect(stageToBudget(6)).toBe(4);
+    expect(stageToBudget(7)).toBe(4);
+  });
+  it('maps Celestial through Deity to 3 guesses', () => {
+    expect(stageToBudget(8)).toBe(3);
+    expect(stageToBudget(9)).toBe(3);
+    expect(stageToBudget(10)).toBe(3);
+    expect(stageToBudget(11)).toBe(3);
+  });
+  it('maps Pantheon through Source to 2 guesses', () => {
+    expect(stageToBudget(12)).toBe(2);
+    expect(stageToBudget(13)).toBe(2);
+    expect(stageToBudget(14)).toBe(2);
+  });
+});
 
 describe('tierForXp', () => {
   it('returns Hatchling/7 for new pets', () => {

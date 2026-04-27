@@ -176,3 +176,19 @@ export function renderCard(state) {
   }
   return lines.join('\n');
 }
+
+/**
+ * Map pet stage_index (0..14) to Saga Wordle guess budget.
+ *
+ * Smoothed bands: stages within a band share a budget. Replaces the
+ * old XP-based `tierForXp` once compute-tiers switches over. See
+ * docs/superpowers/specs/2026-04-26-wordle-difficulty-and-hp-design.md.
+ */
+export function stageToBudget(stage_index) {
+  if (stage_index >= 12) return 2;
+  if (stage_index >= 8) return 3;
+  if (stage_index >= 6) return 4;
+  if (stage_index >= 4) return 5;
+  if (stage_index >= 2) return 6;
+  return 7;
+}
