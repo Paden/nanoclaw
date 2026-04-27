@@ -4,38 +4,6 @@
 // for the deterministic logic and handle the I/O themselves.
 
 /**
- * Compute the tier + guess budget for a given lifetime XP value.
- */
-export function tierForXp(lifetimeXp) {
-  if (lifetimeXp >= 3000) return { tier: 'Apex', guesses: 4 };
-  if (lifetimeXp >= 1500) return { tier: 'Adept', guesses: 5 };
-  if (lifetimeXp >= 500) return { tier: 'Fledgling', guesses: 6 };
-  return { tier: 'Hatchling', guesses: 7 };
-}
-
-/**
- * Sum lifetime XP from Pet Log rows for a given pet name.
- *
- * `petLogRows` is an array of arrays as returned from sheets:
- *   [timestamp, date, pet, event_type, delta, reason, ...]
- *
- * We only count `xp_gain` events — decay/loss never reduces lifetime XP,
- * so dying is a soft reset to easier mode rather than double punishment.
- */
-export function lifetimeXp(petLogRows, petName) {
-  let total = 0;
-  for (const row of petLogRows) {
-    const [, , pet, eventType, delta] = row;
-    if (pet !== petName) continue;
-    if (eventType !== 'xp_gain') continue;
-    const n = Number(delta);
-    if (!Number.isFinite(n) || n <= 0) continue;
-    total += n;
-  }
-  return total;
-}
-
-/**
  * Score a Wordle guess against the answer. Handles duplicate letters
  * correctly: a yellow only fires for letters not already accounted for
  * by greens.

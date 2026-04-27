@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  tierForXp,
-  lifetimeXp,
   scoreGuess,
   isValidGuessShape,
   determineWinner,
@@ -95,45 +93,6 @@ describe('computeWordleHpDelta', () => {
       .toEqual({ event_type: 'wordle_damage', delta: -10 });
     expect(computeWordleHpDelta({ entry: N('Paden'), winner: null, stage_index: 5 }))
       .toEqual({ event_type: 'wordle_damage', delta: -13 });
-  });
-});
-
-describe('tierForXp', () => {
-  it('returns Hatchling/7 for new pets', () => {
-    expect(tierForXp(0)).toEqual({ tier: 'Hatchling', guesses: 7 });
-    expect(tierForXp(499)).toEqual({ tier: 'Hatchling', guesses: 7 });
-  });
-  it('promotes at exact thresholds', () => {
-    expect(tierForXp(500).tier).toBe('Fledgling');
-    expect(tierForXp(1500).tier).toBe('Adept');
-    expect(tierForXp(3000).tier).toBe('Apex');
-  });
-  it('Apex caps at 4 guesses', () => {
-    expect(tierForXp(99999)).toEqual({ tier: 'Apex', guesses: 4 });
-  });
-});
-
-describe('lifetimeXp', () => {
-  const rows = [
-    ['ts', 'd', 'Voss', 'xp_gain', '20', 'wordle win'],
-    ['ts', 'd', 'Voss', 'decay', '-10', 'wordle loss'],
-    ['ts', 'd', 'Nyx', 'xp_gain', '20', 'wordle win'],
-    ['ts', 'd', 'Voss', 'xp_gain', '100', 'big win'],
-    ['ts', 'd', 'Voss', 'xp_gain', 'not-a-number', 'bad row'],
-  ];
-  it('sums only xp_gain rows for the named pet', () => {
-    expect(lifetimeXp(rows, 'Voss')).toBe(120);
-    expect(lifetimeXp(rows, 'Nyx')).toBe(20);
-  });
-  it('ignores decay events (soft reset = easier mode)', () => {
-    const decayHeavy = [
-      ['ts', 'd', 'Voss', 'xp_gain', '500', 'win'],
-      ['ts', 'd', 'Voss', 'decay', '-400', 'loss'],
-    ];
-    expect(lifetimeXp(decayHeavy, 'Voss')).toBe(500);
-  });
-  it('returns 0 for an unknown pet', () => {
-    expect(lifetimeXp(rows, 'Zima')).toBe(0);
   });
 });
 
