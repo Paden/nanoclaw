@@ -24,21 +24,9 @@ import {
   appendRows,
   updateRange,
 } from '../../global/scripts/lib/sheets.mjs';
+import { PETS_COL, nowTsChicago } from '../../global/scripts/lib/pets-schema.mjs';
 
 const SILVERTHORNE_SHEET = '1I3YtBJkFU22xTq1CRqRDjQ1ITrs5nApsfkUV9-jQb-4';
-
-const COL = { owner: 0, stage_index: 4, health: 7, max_health: 15 };
-
-function nowTs() {
-  const d = new Date();
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).formatToParts(d);
-  const g = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-  return `${g.year}-${g.month}-${g.day} ${g.hour}:${g.minute}:${g.second}`;
-}
 
 const ANNOUNCEMENT_PROMPT = `Post this announcement to #family-fun in your voice. Keep the rules verbatim — they are the canonical mechanics. Add a short, characteristic Claudio intro and outro (snarky, dramatic, warm).
 
@@ -77,14 +65,14 @@ export async function migrate({
 } = {}) {
   const token = providedToken ?? (await getAccessToken());
   const rows = await readRangeFn(SILVERTHORNE_SHEET, 'Pets!A2:P10000', { token });
-  const now = nowTs();
+  const now = nowTsChicago();
 
   // Safety: if every non-empty pet row already has a max_health value, the
   // migration has already run. Refuse unless force=true to prevent silent
   // destructive resets of mid-game HP.
   const populated = (rows || [])
-    .filter((r) => String(r[COL.owner] || '').trim())
-    .map((r) => String(r[COL.max_health] || '').trim());
+    .filter((r) => String(r[PETS_COL.owner] || '').trim())
+    .map((r) => String(r[PETS_COL.max_health] || '').trim());
   if (!force && populated.length > 0 && populated.every((v) => v !== '')) {
     throw new Error(
       'migrate-wordle-hp: max_health is already populated for all pets — ' +
@@ -96,9 +84,9 @@ export async function migrate({
   const logRows = [];
 
   (rows || []).forEach((r, i) => {
-    const owner = String(r[COL.owner] || '').trim();
+    const owner = String(r[PETS_COL.owner] || '').trim();
     if (!owner) return;
-    const stage_index = parseInt(r[COL.stage_index], 10) || 0;
+    const stage_index = parseInt(r[PETS_COL.stage_index], 10) || 0;
     const max_health = 100 + 20 * stage_index;
     const rowNum = i + 2;
 

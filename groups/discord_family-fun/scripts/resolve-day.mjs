@@ -24,6 +24,7 @@ import {
   computeDayStakes,
   computeWordleHpDelta,
 } from '../../global/scripts/lib/wordle.mjs';
+import { PETS_COL, nowTsChicago } from '../../global/scripts/lib/pets-schema.mjs';
 
 const PORTILLO_GAMES_SHEET = '1ugYotsqO8UQBydtttEJ4NvnRTN1IbA0-3No7TncSeLY';
 const SILVERTHORNE_SHEET = '1I3YtBJkFU22xTq1CRqRDjQ1ITrs5nApsfkUV9-jQb-4';
@@ -33,25 +34,8 @@ const PLAYERS = [
   { player: 'Danny', pet: 'Zima' },
 ];
 
-// Pets columns A–P (Silverthorne sheet):
-//   A=owner B=name C=species D=avatar E=stage_index F=stage_name G=flavor_modifier
-//   H=health I=happiness J=xp K=streak_days L=last_completion_date M=status
-//   N=legacy_xp O=last_updated P=max_health
-const COL = { owner: 0, stage_index: 4, health: 7, status: 12, max_health: 15 };
-
 function todayCT() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
-}
-
-function nowTs() {
-  const d = new Date();
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).formatToParts(d);
-  const g = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-  return `${g.year}-${g.month}-${g.day} ${g.hour}:${g.minute}:${g.second}`;
 }
 
 function clamp(lo, x, hi) {
@@ -78,7 +62,7 @@ export async function resolveDay(deps = {}) {
     appendRowsFn = appendRows,
     updateRangeFn = updateRange,
     today = todayCT(),
-    now = nowTs(),
+    now = nowTsChicago(),
     token: providedToken,
   } = deps;
 
@@ -117,7 +101,7 @@ export async function resolveDay(deps = {}) {
   const petsRows = await readRangeFn(SILVERTHORNE_SHEET, 'Pets!A2:P10000', { token });
   const petsByOwner = new Map();
   (petsRows || []).forEach((r, i) => {
-    const owner = String(r[COL.owner] || '').toLowerCase();
+    const owner = String(r[PETS_COL.owner] || '').toLowerCase();
     if (owner) petsByOwner.set(owner, { row: r, rowNum: i + 2 });
   });
 
@@ -148,12 +132,12 @@ export async function resolveDay(deps = {}) {
   for (const entry of entries) {
     const petInfo = petsByOwner.get(entry.player.toLowerCase());
     if (!petInfo) continue;
-    const status = String(petInfo.row[COL.status] || 'alive').toLowerCase();
+    const status = String(petInfo.row[PETS_COL.status] || 'alive').toLowerCase();
     if (status === 'deceased') continue;
 
-    const stage_index = parseInt(petInfo.row[COL.stage_index], 10) || 0;
-    const cur_health = parseInt(petInfo.row[COL.health], 10) || 0;
-    const max_health = parseInt(petInfo.row[COL.max_health], 10) || 100;
+    const stage_index = parseInt(petInfo.row[PETS_COL.stage_index], 10) || 0;
+    const cur_health = parseInt(petInfo.row[PETS_COL.health], 10) || 0;
+    const max_health = parseInt(petInfo.row[PETS_COL.max_health], 10) || 100;
 
     const delta = computeWordleHpDelta({ entry, winner, stage_index });
     if (!delta) continue; // Egg-stage returns null

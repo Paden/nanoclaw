@@ -7,6 +7,7 @@
 
 import { getAccessToken, readRange } from '../../global/scripts/lib/sheets.mjs';
 import { stageToBudget } from '../../global/scripts/lib/wordle.mjs';
+import { PETS_COL } from '../../global/scripts/lib/pets-schema.mjs';
 
 const SILVERTHORNE_SHEET = '1I3YtBJkFU22xTq1CRqRDjQ1ITrs5nApsfkUV9-jQb-4';
 const PLAYERS = [
@@ -15,22 +16,18 @@ const PLAYERS = [
   { name: 'Danny', pet: 'Zima' },
 ];
 
-// Pets columns A–P. stage_index is column E (index 4).
-const STAGE_INDEX_COL = 4;
-const OWNER_COL = 0;
-
 export async function computeBudgets({ readRangeFn = readRange, token } = {}) {
   const t = token ?? (await getAccessToken());
   const rows = await readRangeFn(SILVERTHORNE_SHEET, 'Pets!A2:P10000', { token: t });
   const out = {};
   for (const { name } of PLAYERS) {
     const row = (rows || []).find(
-      (r) => String(r[OWNER_COL] || '').toLowerCase() === name.toLowerCase(),
+      (r) => String(r[PETS_COL.owner] || '').toLowerCase() === name.toLowerCase(),
     );
     if (!row) {
       throw new Error(`No Pets row for owner "${name}"`);
     }
-    const stageIndex = parseInt(row[STAGE_INDEX_COL], 10) || 0;
+    const stageIndex = parseInt(row[PETS_COL.stage_index], 10) || 0;
     out[name] = stageToBudget(stageIndex);
   }
   return out;
