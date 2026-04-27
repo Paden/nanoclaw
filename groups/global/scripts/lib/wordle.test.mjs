@@ -8,6 +8,7 @@ import {
   computeDayStakes,
   renderCard,
   stageToBudget,
+  computeWordleHpDelta,
 } from './wordle.mjs';
 
 describe('stageToBudget', () => {
@@ -37,6 +38,63 @@ describe('stageToBudget', () => {
     expect(stageToBudget(12)).toBe(2);
     expect(stageToBudget(13)).toBe(2);
     expect(stageToBudget(14)).toBe(2);
+  });
+});
+
+describe('computeWordleHpDelta', () => {
+  const W = (player) => ({ player, played: true, solved: true });
+  const S = (player) => ({ player, played: true, solved: true });
+  const F = (player) => ({ player, played: true, solved: false });
+  const N = (player) => ({ player, played: false, solved: false });
+
+  it('returns null at Egg (stage 0) for every outcome', () => {
+    expect(computeWordleHpDelta({ entry: W('Paden'), winner: 'Paden', stage_index: 0 })).toBeNull();
+    expect(computeWordleHpDelta({ entry: S('Paden'), winner: 'Brenda', stage_index: 0 })).toBeNull();
+    expect(computeWordleHpDelta({ entry: F('Paden'), winner: 'Brenda', stage_index: 0 })).toBeNull();
+    expect(computeWordleHpDelta({ entry: N('Paden'), winner: 'Brenda', stage_index: 0 })).toBeNull();
+  });
+
+  it('won (winner) heals 5 + floor(stage/2)', () => {
+    expect(computeWordleHpDelta({ entry: W('Paden'), winner: 'Paden', stage_index: 1 }))
+      .toEqual({ event_type: 'wordle_heal', delta: 5 });
+    expect(computeWordleHpDelta({ entry: W('Paden'), winner: 'Paden', stage_index: 7 }))
+      .toEqual({ event_type: 'wordle_heal', delta: 8 });
+    expect(computeWordleHpDelta({ entry: W('Paden'), winner: 'Paden', stage_index: 14 }))
+      .toEqual({ event_type: 'wordle_heal', delta: 12 });
+  });
+
+  it('solved-non-winner heals 2 + floor(stage/4)', () => {
+    expect(computeWordleHpDelta({ entry: S('Paden'), winner: 'Brenda', stage_index: 1 }))
+      .toEqual({ event_type: 'wordle_heal', delta: 2 });
+    expect(computeWordleHpDelta({ entry: S('Paden'), winner: 'Brenda', stage_index: 7 }))
+      .toEqual({ event_type: 'wordle_heal', delta: 3 });
+    expect(computeWordleHpDelta({ entry: S('Paden'), winner: 'Brenda', stage_index: 14 }))
+      .toEqual({ event_type: 'wordle_heal', delta: 5 });
+  });
+
+  it('failed (played, did not solve) damages 5 + stage', () => {
+    expect(computeWordleHpDelta({ entry: F('Paden'), winner: 'Brenda', stage_index: 1 }))
+      .toEqual({ event_type: 'wordle_damage', delta: -6 });
+    expect(computeWordleHpDelta({ entry: F('Paden'), winner: 'Brenda', stage_index: 7 }))
+      .toEqual({ event_type: 'wordle_damage', delta: -12 });
+    expect(computeWordleHpDelta({ entry: F('Paden'), winner: 'Brenda', stage_index: 14 }))
+      .toEqual({ event_type: 'wordle_damage', delta: -19 });
+  });
+
+  it('no-show (did not play) damages 8 + stage', () => {
+    expect(computeWordleHpDelta({ entry: N('Paden'), winner: 'Brenda', stage_index: 1 }))
+      .toEqual({ event_type: 'wordle_damage', delta: -9 });
+    expect(computeWordleHpDelta({ entry: N('Paden'), winner: 'Brenda', stage_index: 7 }))
+      .toEqual({ event_type: 'wordle_damage', delta: -15 });
+    expect(computeWordleHpDelta({ entry: N('Paden'), winner: 'Brenda', stage_index: 14 }))
+      .toEqual({ event_type: 'wordle_damage', delta: -22 });
+  });
+
+  it('handles winner === null (nobody solved): all players who played are failed', () => {
+    expect(computeWordleHpDelta({ entry: F('Paden'), winner: null, stage_index: 5 }))
+      .toEqual({ event_type: 'wordle_damage', delta: -10 });
+    expect(computeWordleHpDelta({ entry: N('Paden'), winner: null, stage_index: 5 }))
+      .toEqual({ event_type: 'wordle_damage', delta: -13 });
   });
 });
 

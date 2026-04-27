@@ -192,3 +192,30 @@ export function stageToBudget(stage_index) {
   if (stage_index >= 2) return 6;
   return 7;
 }
+
+/**
+ * Compute the wordle HP delta for one player on one day.
+ *
+ * Returns null at stage 0 (Egg = inert per chore_pet_spec). Otherwise
+ * returns { event_type, delta } where event_type is 'wordle_heal' or
+ * 'wordle_damage' and delta is the integer HP change to apply.
+ *
+ * Outcome derived from entry shape:
+ *   entry.player === winner    → won
+ *   entry.solved && !winner-of  → solved (non-winner)
+ *   entry.played && !entry.solved → failed
+ *   !entry.played              → no_show
+ */
+export function computeWordleHpDelta({ entry, winner, stage_index }) {
+  if (stage_index === 0) return null;
+  if (entry.player === winner) {
+    return { event_type: 'wordle_heal', delta: 5 + Math.floor(stage_index / 2) };
+  }
+  if (entry.solved) {
+    return { event_type: 'wordle_heal', delta: 2 + Math.floor(stage_index / 4) };
+  }
+  if (entry.played) {
+    return { event_type: 'wordle_damage', delta: -(5 + stage_index) };
+  }
+  return { event_type: 'wordle_damage', delta: -(8 + stage_index) };
+}
