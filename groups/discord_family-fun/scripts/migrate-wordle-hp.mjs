@@ -1,7 +1,12 @@
 #!/usr/bin/env node
-// migrate-wordle-hp.mjs — one-shot rollout of the Saga Wordle HP system.
+// migrate-wordle-hp.mjs — ONE-SHOT rollout of the Saga Wordle HP system.
 //
-// Idempotent (re-runnable):
+// Run-once during rollout. Re-running is DESTRUCTIVE: it resets every pet's
+// current health to its stage's max, erasing any in-flight damage from
+// gameplay. The script refuses to run if max_health is already populated
+// for all rows; pass --force to override (use only for re-rollout / dev).
+//
+// Steps:
 //   1. Reads Pets!A2:P10000 (Silverthorne).
 //   2. For each pet, computes max_health = 100 + 20 × stage_index.
 //   3. Writes max_health to column P, resets health to max_health (column H).
@@ -9,7 +14,7 @@
 //   5. Prints a Claudio-voiced announcement prompt to stdout for the
 //      operator to relay to #family-fun.
 //
-// Run: node groups/discord_family-fun/scripts/migrate-wordle-hp.mjs
+// Run: node groups/discord_family-fun/scripts/migrate-wordle-hp.mjs [--force]
 //
 // Pre-req: column P "max_health" header must be present on the Pets tab.
 
@@ -68,10 +73,24 @@ export async function migrate({
   appendRowsFn = appendRows,
   updateRangeFn = updateRange,
   token: providedToken,
+  force = false,
 } = {}) {
   const token = providedToken ?? (await getAccessToken());
   const rows = await readRangeFn(SILVERTHORNE_SHEET, 'Pets!A2:P10000', { token });
   const now = nowTs();
+
+  // Safety: if every non-empty pet row already has a max_health value, the
+  // migration has already run. Refuse unless force=true to prevent silent
+  // destructive resets of mid-game HP.
+  const populated = (rows || [])
+    .filter((r) => String(r[COL.owner] || '').trim())
+    .map((r) => String(r[COL.max_health] || '').trim());
+  if (!force && populated.length > 0 && populated.every((v) => v !== '')) {
+    throw new Error(
+      'migrate-wordle-hp: max_health is already populated for all pets — ' +
+        'this would silently reset current HP. Pass --force to override.',
+    );
+  }
 
   const updates = [];
   const logRows = [];
@@ -117,7 +136,8 @@ export async function migrate({
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  migrate()
+  const force = process.argv.includes('--force');
+  migrate({ force })
     .then((result) => {
       process.stdout.write(`\n✅ Migration complete: ${result.updates.length} pet(s) updated.\n\n`);
       for (const u of result.updates) {
