@@ -1,27 +1,28 @@
 #!/usr/bin/env node
 // resolve-day.mjs — resolve today's Saga Wordle.
 //
-// Reads Wordle Today + Wordle State + Cheat Log from Portillo Games.
-// Determines winner, computes Pet Log stakes, and either writes them to
-// Silverthorne (normal case) or holds them (pending cheat review).
+// Reads Wordle Today + Wordle State + Cheat Log from Portillo Games,
+// plus Pets from Silverthorne. Determines winner, computes XP stakes
+// AND wordle HP deltas, then writes both to Pet Log + updates
+// Pets.health (host-side) — unless a cheat review is pending.
 //
-// Returns JSON:
-//   { status, winner, word, entries, writes, stakes_held, reason }
+// Returns JSON: { status, winner, word, entries, writes, hp_writes,
+//                 transitions, stakes_held, reason }
 //
 // status: "resolved" | "stakes_held" | "no_puzzle"
 //
-// The agent uses this to compose the day's chapter and result announcement —
-// it does NOT re-derive who won or what to write. Pure logic lives in
-// /workspace/global/scripts/lib/wordle.mjs.
+// Pure logic lives in /workspace/global/scripts/lib/wordle.mjs.
 
 import {
   getAccessToken,
   readRange,
   appendRows,
+  updateRange,
 } from '../../global/scripts/lib/sheets.mjs';
 import {
   determineWinner,
   computeDayStakes,
+  computeWordleHpDelta,
 } from '../../global/scripts/lib/wordle.mjs';
 
 const PORTILLO_GAMES_SHEET = '1ugYotsqO8UQBydtttEJ4NvnRTN1IbA0-3No7TncSeLY';
@@ -32,31 +33,46 @@ const PLAYERS = [
   { player: 'Danny', pet: 'Zima' },
 ];
 
+// Pets columns A–P (Silverthorne sheet):
+//   A=owner B=name C=species D=avatar E=stage_index F=stage_name G=flavor_modifier
+//   H=health I=happiness J=xp K=streak_days L=last_completion_date M=status
+//   N=legacy_xp O=last_updated P=max_health
+const COL = { owner: 0, stage_index: 4, health: 7, status: 12, max_health: 15 };
+
 function todayCT() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 }
 
 function nowTs() {
-  // YYYY-MM-DD HH:MM:SS in America/Chicago, matching date_time_convention.md
   const d = new Date();
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Chicago',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).formatToParts(d);
   const g = Object.fromEntries(parts.map((p) => [p.type, p.value]));
   return `${g.year}-${g.month}-${g.day} ${g.hour}:${g.minute}:${g.second}`;
+}
+
+function clamp(lo, x, hi) {
+  return Math.max(lo, Math.min(hi, x));
+}
+
+function classifyTransition({ prev, next, max }) {
+  // 0 / 20% / 40% bands. Death takes priority.
+  if (next <= 0 && prev > 0) return 'died';
+  const critThresh = 0.2 * max;
+  const recoverThresh = 0.4 * max;
+  if (prev > critThresh && next <= critThresh && next > 0) return 'entered_critical';
+  if (prev <= recoverThresh && next > recoverThresh) return 'recovered';
+  return null;
 }
 
 export async function resolveDay(deps = {}) {
   const {
     readRangeFn = readRange,
     appendRowsFn = appendRows,
+    updateRangeFn = updateRange,
     today = todayCT(),
     now = nowTs(),
     token: providedToken,
@@ -93,7 +109,15 @@ export async function resolveDay(deps = {}) {
     (r) => r[1] === today && String(r[6] || '').toLowerCase() === 'pending_review',
   );
 
-  // 4. Build per-player entries
+  // 4. Pets (Silverthorne) — needed for HP deltas
+  const petsRows = await readRangeFn(SILVERTHORNE_SHEET, 'Pets!A2:P10000', { token });
+  const petsByOwner = new Map();
+  (petsRows || []).forEach((r, i) => {
+    const owner = String(r[COL.owner] || '').toLowerCase();
+    if (owner) petsByOwner.set(owner, { row: r, rowNum: i + 2 });
+  });
+
+  // 5. Build per-player entries (existing logic, unchanged)
   const entries = PLAYERS.map(({ player, pet }) => {
     const mine = todays
       .filter((r) => String(r[1]).toLowerCase() === player.toLowerCase())
@@ -103,17 +127,9 @@ export async function resolveDay(deps = {}) {
     const played = mine.length > 0;
     const solved = !!solvedRow;
     const guesses = mine.length;
-    // Tiebreak proxy: absolute row position in Wordle State reflects the
-    // real append order (score-guess.mjs writes synchronously on submit),
-    // so earlier row = earlier submission. Better than faking solved_at.
     const solvedRowIndex = solvedRow ? todays.indexOf(solvedRow) : Number.MAX_SAFE_INTEGER;
     return {
-      player,
-      pet,
-      played,
-      solved,
-      guesses,
-      budget,
+      player, pet, played, solved, guesses, budget,
       solved_row_index: solvedRowIndex,
       solved_at: solvedRow ? `${today} guess${solvedRow[2]}` : null,
     };
@@ -122,41 +138,99 @@ export async function resolveDay(deps = {}) {
   const winner = determineWinner(entries);
   const writes = computeDayStakes({ entries, winner, word });
 
-  // 5. Hold stakes if any cheat is pending review
+  // 6. Compute HP deltas (skip deceased pets and missing pet rows)
+  const hp_writes = [];
+  const transitions = [];
+  for (const entry of entries) {
+    const petInfo = petsByOwner.get(entry.player.toLowerCase());
+    if (!petInfo) continue;
+    const status = String(petInfo.row[COL.status] || 'alive').toLowerCase();
+    if (status === 'deceased') continue;
+
+    const stage_index = parseInt(petInfo.row[COL.stage_index], 10) || 0;
+    const cur_health = parseInt(petInfo.row[COL.health], 10) || 0;
+    const max_health = parseInt(petInfo.row[COL.max_health], 10) || 100;
+
+    const delta = computeWordleHpDelta({ entry, winner, stage_index });
+    if (!delta) continue; // Egg-stage returns null
+
+    const new_health = clamp(0, cur_health + delta.delta, max_health);
+
+    // Reason text mirrors XP rows for grep-ability
+    let reason;
+    if (entry.player === winner) reason = `Saga Wordle win — ${word}`;
+    else if (entry.solved) reason = `Saga Wordle solve — ${word}`;
+    else if (entry.played) reason = `Saga Wordle — failed to solve ${word}`;
+    else reason = 'Saga Wordle — did not play';
+
+    hp_writes.push({
+      player: entry.player,
+      pet: entry.pet,
+      event_type: delta.event_type,
+      delta: delta.delta,
+      reason,
+      prev_health: cur_health,
+      new_health,
+      max_health,
+      rowNum: petInfo.rowNum,
+    });
+
+    const transition = classifyTransition({
+      prev: cur_health, next: new_health, max: max_health,
+    });
+    if (transition) {
+      transitions.push({
+        player: entry.player, pet: entry.pet, kind: transition,
+        new_health, max_health,
+      });
+    }
+  }
+
+  // 7. Hold stakes if any cheat is pending review — no XP, no HP writes
   if (pending.length > 0) {
     return {
       ok: true,
       status: 'stakes_held',
-      winner,
-      word,
-      entries,
-      writes,
+      winner, word, entries, writes,
+      hp_writes: hp_writes.map(({ rowNum: _r, ...rest }) => rest),
+      transitions,
       stakes_held: true,
       pending_suspects: pending.map((r) => r[2]),
       reason: 'cheat review pending',
     };
   }
 
-  // 6. Write Pet Log rows to Silverthorne
+  // 8. Write XP rows (existing behavior)
   if (writes.length > 0) {
     const rowsToAppend = writes.map((w) => [
-      now,
-      today,
-      w.pet,
-      w.event_type,
-      String(w.delta),
-      w.reason,
+      now, today, w.pet, w.event_type, String(w.delta), w.reason,
     ]);
     await appendRowsFn(SILVERTHORNE_SHEET, 'Pet Log!A:F', rowsToAppend, { token });
+  }
+
+  // 9. Write HP rows + update Pets.health cells
+  if (hp_writes.length > 0) {
+    const hpRowsToAppend = hp_writes.map((w) => [
+      now, today, w.pet, w.event_type, String(w.delta), w.reason,
+    ]);
+    await appendRowsFn(SILVERTHORNE_SHEET, 'Pet Log!A:F', hpRowsToAppend, { token });
+
+    for (const w of hp_writes) {
+      await updateRangeFn(
+        SILVERTHORNE_SHEET,
+        `Pets!H${w.rowNum}`,
+        [[String(w.new_health)]],
+        { token },
+      );
+    }
   }
 
   return {
     ok: true,
     status: 'resolved',
-    winner,
-    word,
-    entries,
-    writes,
+    winner, word, entries, writes,
+    hp_writes: hp_writes.map(({ rowNum: _r, ...rest }) => rest),
+    transitions,
     stakes_held: false,
   };
 }
