@@ -71,24 +71,27 @@ Bonuses:
 
 Streak bonus: every 7 consecutive days with zero missed chores → flat +100 XP, health refills to max, one "shield" token (consumes one missed-chore penalty in the next 14 days).
 
-### Stages (12 total — basic → mythical → cosmic)
+### Stages (15 total — basic → mythical → cosmic → post-cosmic)
 
-Each stage has a cumulative XP threshold and a `daily_upkeep_min` (minutes of chore-work required per day to sustain health). The more evolved, the more daily effort demanded.
+Each stage has a cumulative XP threshold, a `daily_upkeep_min` (minutes of chore-work per day to sustain health), and a `max_health` ceiling. Max HP grows by +20 per stage so high-tier pets feel bigger, not just more fragile.
 
-| # | Stage | XP threshold | Upkeep (min/day) | Vibe |
-|---|---|---|---|---|
-| 0 | Egg | 0 | 0 | immortal, inert |
-| 1 | Hatchling | 50 | 5 | innocent |
-| 2 | Critter | 150 | 12 | curious |
-| 3 | Beast | 350 | 25 | rowdy |
-| 4 | Spirit | 750 | 40 | ethereal |
-| 5 | Elemental | 1500 | 60 | awakened |
-| 6 | Chimera | 3000 | 85 | hybrid, unpredictable |
-| 7 | Wyrm | 5500 | 115 | ancient |
-| 8 | Celestial | 9500 | 150 | divine |
-| 9 | Eldritch | 16000 | 200 | unknowable, probably shouldn't exist |
-| 10 | Cosmic Horror | 28000 | 270 | reality bends around it |
-| 11 | Deity | 50000 | 360 | you have created a god |
+| # | Stage | XP threshold | Upkeep (min/day) | Max HP | Vibe |
+|---|---|---|---|---|---|
+| 0 | Egg | 0 | 0 | 100 | immortal, inert |
+| 1 | Hatchling | 50 | 5 | 120 | innocent |
+| 2 | Critter | 150 | 12 | 140 | curious |
+| 3 | Beast | 350 | 25 | 160 | rowdy |
+| 4 | Spirit | 750 | 40 | 180 | ethereal |
+| 5 | Elemental | 1500 | 60 | 200 | awakened |
+| 6 | Chimera | 3000 | 85 | 220 | hybrid, unpredictable |
+| 7 | Wyrm | 5500 | 115 | 240 | ancient |
+| 8 | Celestial | 9500 | 150 | 260 | divine |
+| 9 | Eldritch | 16000 | 200 | 280 | unknowable, probably shouldn't exist |
+| 10 | Cosmic Horror | 28000 | 270 | 300 | reality bends around it |
+| 11 | Deity | 50000 | 360 | 320 | you have created a god |
+| 12 | Pantheon | 85000 | 470 | 340 | assembly of selves |
+| 13 | Concept | 145000 | 600 | 360 | the pet IS a concept (entropy, color, regret) |
+| 14 | Source | 245000 | 760 | 380 | the thing creation springs from |
 
 ### Uniqueness (the fun part)
 
@@ -128,9 +131,16 @@ So at Wyrm (115 min upkeep) with only 60 min of chores, lose 110 health. Wyrm+ i
 
 On-time completions restore `+2` health each. Late completions restore `+1`. Missed chores (nag window expired) apply `-5` immediately, on top of the daily decay.
 
+**Wordle outcomes also affect health.** See `docs/superpowers/specs/2026-04-26-wordle-difficulty-and-hp-design.md` for the per-game stage-scaled deltas applied at `resolve-day`. Evolution adds `+20` to both `max_health` and `health` (clamped at the new max).
+
 ### Critical state
 
-Health ≤ 20 → pet enters `critical`. Status card renders the pet in red with a distress avatar. Nags become urgent and pet-voiced ("Milo's breathing is shallow..."). Status reverts to `alive` once health climbs back above 40.
+Critical / recovered thresholds are now percentages of `max_health` (since `max_health` varies by stage):
+
+- `health ≤ 0.20 × max_health` → pet enters `critical`. Status card renders the pet in red with a distress avatar. Nags become urgent and pet-voiced ("Milo's breathing is shallow…").
+- `health > 0.40 × max_health` → status reverts to `alive`.
+
+So a Deity at 60/320 and an Egg at 18/100 both read as critical.
 
 ### Death
 
