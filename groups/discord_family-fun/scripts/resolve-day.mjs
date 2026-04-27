@@ -61,6 +61,10 @@ function clamp(lo, x, hi) {
 function classifyTransition({ prev, next, max }) {
   // 0 / 20% / 40% bands. Death takes priority.
   if (next <= 0 && prev > 0) return 'died';
+  // Pets at or below 0 don't generate transitions on heals — revival
+  // is its own event, handled elsewhere. Prevents a phantom "recovered"
+  // when a deceased pet's row is touched.
+  if (prev <= 0) return null;
   const critThresh = 0.2 * max;
   const recoverThresh = 0.4 * max;
   if (prev > critThresh && next <= critThresh && next > 0) return 'entered_critical';

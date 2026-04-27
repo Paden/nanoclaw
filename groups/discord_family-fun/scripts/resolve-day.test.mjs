@@ -185,6 +185,26 @@ describe('resolveDay', () => {
     expect(result.hp_writes.map((w) => w.player)).not.toContain('Paden');
   });
 
+  it('does not emit a phantom recovered transition when prev_health <= 0', async () => {
+    // Hypothetical: a pet whose row shows health=0 but status='alive' (data
+    // inconsistency or future revive flow). A heal must NOT trigger 'recovered'.
+    const todayRows = [[TODAY, 'crane', '{"Paden":6,"Brenda":7,"Danny":5}']];
+    const stateRows = [[TODAY, 'Paden', '1', 'CRANE', '🟩🟩🟩🟩🟩', 'true']];
+    const petsRows = [
+      petRow({ owner: 'Paden',  stage_index: 5, health: 0, max_health: 100 }),
+      petRow({ owner: 'Brenda', stage_index: 1, health: 100, max_health: 120 }),
+      petRow({ owner: 'Danny',  stage_index: 1, health: 100, max_health: 120 }),
+    ];
+    const deps = makeDeps({ todayRows, stateRows, petsRows });
+    const result = await resolveDay(deps);
+
+    // Paden won at stage 5: heal +7 → 0 + 7 = 7 / 100 = 7% — well under 40%
+    // recovered threshold AND prev was 0, so no transition either way.
+    const paden = result.hp_writes.find((w) => w.player === 'Paden');
+    expect(paden.new_health).toBe(7);
+    expect(result.transitions).toEqual([]);
+  });
+
   it('holds stakes when a cheat review is pending — no HP writes either', async () => {
     const todayRows = [[TODAY, 'crane', '{"Paden":6,"Brenda":7,"Danny":5}']];
     const stateRows = [[TODAY, 'Paden', '1', 'CRANE', '🟩🟩🟩🟩🟩', 'true']];
