@@ -223,8 +223,28 @@ export async function resolveDay(deps = {}) {
   };
 }
 
+// Compute YYYY-MM-DD for "n days ago" in America/Chicago.
+export function dateInChicago(daysAgo = 0, now = new Date()) {
+  return _dateInChicagoImpl(daysAgo, now);
+}
+function _dateInChicagoImpl(daysAgo, now) {
+  const d = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+}
+
+// CLI:
+//   node resolve-day.mjs                       → resolve today (Chicago)
+//   node resolve-day.mjs --yesterday           → resolve yesterday (Chicago)
+//   node resolve-day.mjs --date=YYYY-MM-DD     → resolve the explicit date
+// The 6am rollover passes --yesterday so it operates on the puzzle that just
+// finished, not on today's freshly-published puzzle (which has no plays yet).
 if (import.meta.url === `file://${process.argv[1]}`) {
-  resolveDay()
+  let today;
+  for (const arg of process.argv.slice(2)) {
+    if (arg === '--yesterday') today = dateInChicago(1);
+    else if (arg.startsWith('--date=')) today = arg.split('=')[1];
+  }
+  resolveDay(today ? { today } : {})
     .then((r) => process.stdout.write(JSON.stringify(r) + '\n'))
     .catch((err) => {
       process.stdout.write(

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveDay } from './resolve-day.mjs';
+import { resolveDay, dateInChicago } from './resolve-day.mjs';
 
 const TODAY = '2026-04-07';
 
@@ -228,5 +228,25 @@ describe('resolveDay', () => {
     const deps = makeDeps({ todayRows: [], stateRows: [], petsRows: [] });
     const result = await resolveDay(deps);
     expect(result.status).toBe('no_puzzle');
+  });
+});
+
+describe('dateInChicago', () => {
+  it('returns today in Chicago when daysAgo=0', () => {
+    // 2026-04-28T15:00:00Z = 10:00 AM CDT on 2026-04-28
+    const fixed = new Date('2026-04-28T15:00:00Z');
+    expect(dateInChicago(0, fixed)).toBe('2026-04-28');
+  });
+
+  it('returns yesterday in Chicago when daysAgo=1', () => {
+    const fixed = new Date('2026-04-28T15:00:00Z');
+    expect(dateInChicago(1, fixed)).toBe('2026-04-27');
+  });
+
+  it('handles UTC times that are still "yesterday" in Chicago', () => {
+    // 2026-04-28T03:00:00Z = 22:00 CDT on 2026-04-27 (still yesterday in Chicago)
+    const fixed = new Date('2026-04-28T03:00:00Z');
+    expect(dateInChicago(0, fixed)).toBe('2026-04-27');
+    expect(dateInChicago(1, fixed)).toBe('2026-04-26');
   });
 });
