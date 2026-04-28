@@ -82,6 +82,24 @@ export async function resolveDay(deps = {}) {
     /* ignore */
   }
 
+  // 1b. Idempotence: check for a wordle_resolved marker row dated `today`.
+  //     resolve-day writes one of these on every successful resolution; the
+  //     marker prevents the 6am rollover from re-resolving a puzzle that the
+  //     midnight close already wrote. Marker shape:
+  //       [<timestamp>, <date>, '', 'wordle_resolved', '', <word>]
+  const existingPetLog = await readRangeFn(SILVERTHORNE_SHEET, 'Pet Log!A2:F20000', { token });
+  const alreadyResolved = (existingPetLog || []).some(
+    (r) => r[1] === today && r[3] === 'wordle_resolved',
+  );
+  if (alreadyResolved) {
+    return {
+      ok: true,
+      status: 'already_resolved',
+      word,
+      message: `Puzzle for ${today} was already resolved (wordle_resolved marker present in Pet Log).`,
+    };
+  }
+
   // 2. Wordle State (all players' guesses today)
   const stateRows = await readRangeFn(PORTILLO_GAMES_SHEET, 'Wordle State!A2:F10000', { token });
   const todays = (stateRows || []).filter((r) => r[0] === today);
@@ -212,6 +230,15 @@ export async function resolveDay(deps = {}) {
       );
     }
   }
+
+  // Write the idempotence marker AFTER all data writes succeed. If a write
+  // above failed, no marker → next caller will retry the resolution.
+  await appendRowsFn(
+    SILVERTHORNE_SHEET,
+    'Pet Log!A:F',
+    [[now, today, '', 'wordle_resolved', '', word]],
+    { token },
+  );
 
   return {
     ok: true,

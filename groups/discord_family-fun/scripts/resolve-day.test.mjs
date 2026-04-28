@@ -18,13 +18,14 @@ function petRow({ owner, stage_index, health, max_health, status = 'alive', rowN
   return r;
 }
 
-function makeDeps({ todayRows, stateRows, petsRows, cheatRows = [] }) {
+function makeDeps({ todayRows, stateRows, petsRows, cheatRows = [], petLogRows = [] }) {
   const appendRowsFn = vi.fn().mockResolvedValue({});
   const updateRangeFn = vi.fn().mockResolvedValue({});
   const readRangeFn = vi.fn().mockImplementation(async (_sheet, range) => {
     if (range.startsWith('Wordle Today')) return todayRows;
     if (range.startsWith('Wordle State')) return stateRows;
     if (range.startsWith('Cheat Log')) return cheatRows;
+    if (range.startsWith('Pet Log')) return petLogRows;
     if (range.startsWith('Pets!')) return petsRows;
     return [];
   });
@@ -77,10 +78,11 @@ describe('resolveDay', () => {
         prev_health: 50, new_health: 35, max_health: 240 },
     ]);
 
-    // appendRows called twice: XP block + HP block
-    expect(deps.appendRowsFn).toHaveBeenCalledTimes(2);
+    // appendRows called 3x: XP block + HP block + idempotence marker
+    expect(deps.appendRowsFn).toHaveBeenCalledTimes(3);
     const xpAppended = deps.appendRowsFn.mock.calls[0][2];
     const hpAppended = deps.appendRowsFn.mock.calls[1][2];
+    const markerAppended = deps.appendRowsFn.mock.calls[2][2];
     expect(xpAppended).toHaveLength(2); // Paden xp_gain + Danny decay
     expect(hpAppended).toHaveLength(3); // 3 HP rows
     expect(hpAppended[0]).toEqual([
@@ -88,6 +90,9 @@ describe('resolveDay', () => {
     ]);
     expect(hpAppended[2]).toEqual([
       '2026-04-07 18:00:00', TODAY, 'Zima', 'wordle_damage', '-15', 'Saga Wordle — did not play',
+    ]);
+    expect(markerAppended).toEqual([
+      ['2026-04-07 18:00:00', TODAY, '', 'wordle_resolved', '', 'crane'],
     ]);
 
     // Pets.health updated for each non-deceased pet via updateRange
@@ -228,6 +233,48 @@ describe('resolveDay', () => {
     const deps = makeDeps({ todayRows: [], stateRows: [], petsRows: [] });
     const result = await resolveDay(deps);
     expect(result.status).toBe('no_puzzle');
+  });
+
+  it('returns already_resolved + skips writes when wordle_resolved marker exists', async () => {
+    const todayRows = [[TODAY, 'crane', '{"Paden":6,"Brenda":7,"Danny":5}']];
+    const stateRows = [[TODAY, 'Paden', '1', 'CRANE', '🟩🟩🟩🟩🟩', 'true']];
+    const petsRows = [
+      petRow({ owner: 'Paden',  stage_index: 5, health: 60, max_health: 200 }),
+      petRow({ owner: 'Brenda', stage_index: 1, health: 100, max_health: 120 }),
+      petRow({ owner: 'Danny',  stage_index: 7, health: 50, max_health: 240 }),
+    ];
+    const petLogRows = [
+      // a prior resolution dropped this marker
+      ['2026-04-07 23:55:00', TODAY, '', 'wordle_resolved', '', 'crane'],
+    ];
+    const deps = makeDeps({ todayRows, stateRows, petsRows, petLogRows });
+    const result = await resolveDay(deps);
+
+    expect(result.status).toBe('already_resolved');
+    expect(result.word).toBe('crane');
+    // Critical: no Pet Log writes, no Pets.health updates — the marker is enough
+    expect(deps.appendRowsFn).not.toHaveBeenCalled();
+    expect(deps.updateRangeFn).not.toHaveBeenCalled();
+  });
+
+  it('only matches wordle_resolved markers for the exact target date', async () => {
+    // A marker for a DIFFERENT date must not block today's resolution.
+    const todayRows = [[TODAY, 'crane', '{"Paden":6,"Brenda":7,"Danny":5}']];
+    const stateRows = [[TODAY, 'Paden', '1', 'CRANE', '🟩🟩🟩🟩🟩', 'true']];
+    const petsRows = [
+      petRow({ owner: 'Paden',  stage_index: 1, health: 100, max_health: 120 }),
+      petRow({ owner: 'Brenda', stage_index: 1, health: 100, max_health: 120 }),
+      petRow({ owner: 'Danny',  stage_index: 1, health: 100, max_health: 120 }),
+    ];
+    const petLogRows = [
+      ['2026-04-06 23:55:00', '2026-04-06', '', 'wordle_resolved', '', 'aback'], // yesterday
+    ];
+    const deps = makeDeps({ todayRows, stateRows, petsRows, petLogRows });
+    const result = await resolveDay(deps);
+
+    expect(result.status).toBe('resolved');
+    // 3 calls: XP, HP, marker
+    expect(deps.appendRowsFn).toHaveBeenCalledTimes(3);
   });
 });
 
