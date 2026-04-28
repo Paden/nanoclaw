@@ -14,6 +14,7 @@ import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
+import { formatOutbound } from './router.js';
 import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
@@ -250,6 +251,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 );
               } else if (data.type === 'message' && jid && data.text) {
                 data.text = stripNoReplySuffix(data.text);
+                // Strip <internal>...</internal> blocks. The agent's prompt
+                // tells it to wrap status/log/recap in <internal>, but
+                // agents occasionally leak the block to channel anyway.
+                // Stripping here defends every IPC send-path (webhook,
+                // edit, plain) without relying on prompt compliance.
+                data.text = formatOutbound(data.text);
                 if (!data.text) {
                   try {
                     fs.unlinkSync(filePath);
@@ -264,16 +271,23 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 // a restart).
                 const persona = resolveWebhookPersona(data.sender, sourceGroup);
                 if (persona && deps.sendWebhookMessage) {
-                  await deps.sendWebhookMessage(
+                  const msgId = await deps.sendWebhookMessage(
                     jid,
                     data.text,
                     persona.name,
                     persona.avatar,
                   );
-                  logger.info(
-                    { chatJid: jid, sourceGroup, sender: data.sender },
-                    'IPC persona message sent via webhook',
-                  );
+                  if (msgId) {
+                    logger.info(
+                      { chatJid: jid, sourceGroup, sender: data.sender },
+                      'IPC persona message sent via webhook',
+                    );
+                  } else {
+                    logger.warn(
+                      { chatJid: jid, sourceGroup, sender: data.sender },
+                      'IPC persona webhook send returned no id (likely failed, see error log)',
+                    );
+                  }
                   try {
                     fs.unlinkSync(filePath);
                   } catch {
@@ -372,6 +386,18 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 data.text &&
                 deps.editMessage
               ) {
+                // Strip <internal>...</internal> blocks here too — agents
+                // can leak the marker into edits the same way they leak
+                // into fresh sends.
+                data.text = formatOutbound(data.text);
+                if (!data.text) {
+                  try {
+                    fs.unlinkSync(filePath);
+                  } catch {
+                    /* ignore */
+                  }
+                  continue;
+                }
                 const labels = readLabels(sourceGroup);
                 const entry = labels[data.label];
                 const id = entry ? labelId(entry) : undefined;
@@ -525,7 +551,6 @@ export async function processTaskIpc(
     folder?: string;
     trigger?: string;
     requiresTrigger?: boolean;
-    isDm?: boolean;
     containerConfig?: RegisteredGroup['containerConfig'];
   },
   sourceGroup: string, // Verified identity from IPC directory
@@ -820,8 +845,8 @@ export async function processTaskIpc(
           break;
         }
         // Defense in depth: agent cannot set isMain via IPC.
-        // Preserve isMain and isDm from the existing registration so IPC
-        // config updates (e.g. adding additionalMounts) don't strip flags.
+        // Preserve isMain from the existing registration so IPC config updates
+        // (e.g. adding additionalMounts) don't strip the flag.
         const existingGroup = registeredGroups[data.jid];
         deps.registerGroup(data.jid, {
           name: data.name,
@@ -831,7 +856,6 @@ export async function processTaskIpc(
           containerConfig: data.containerConfig,
           requiresTrigger: data.requiresTrigger,
           isMain: existingGroup?.isMain,
-          isDm: data.isDm ?? existingGroup?.isDm,
         });
       } else {
         logger.warn(
