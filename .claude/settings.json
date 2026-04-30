@@ -9,5 +9,24 @@
   },
   "enabledPlugins": {
     "claude-md-management@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm test*)",
+      "mcp__bitbucket__bb_get",
+      "mcp__claude_ai_Atlassian__getJiraIssue",
+      "mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql",
+      "mcp__claude_ai_Atlassian__getTransitionsForJiraIssue",
+      "mcp__linkedin__get_person_profile",
+      "mcp__claude_ai_Atlassian__getConfluencePage",
+      "mcp__claude_ai_Atlassian__searchConfluenceUsingCql",
+      "mcp__plugin_atlassian_atlassian__getJiraIssue",
+      "mcp__plugin_context7_context7__query-docs",
+      "mcp__claude_ai_Google_Calendar__list_events",
+      "mcp__claude_ai_Atlassian__lookupJiraAccountId",
+      "mcp__clickup__get_task_details",
+      "mcp__claude_ai_Slack__slack_search_users",
+      "mcp__plugin_atlassian_atlassian__getConfluencePage"
+    ]
   }
 }

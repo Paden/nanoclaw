@@ -459,7 +459,7 @@ async function runQuery(
     };
     load('/workspace/global/CLAUDE.md');
     load(
-      '/workspace/global/sheets.md',
+      '/workspace/group/sheets.md',
       '# Reference: Google Sheets (auto-loaded — do NOT Read this file)',
     );
     load(
@@ -547,13 +547,6 @@ async function runQuery(
       disallowedTools?: string[];
     }
   > = {
-    // DMs only ever use mcp__nanoclaw__* (send_message, discord_add_reaction).
-    // Wordle scoring and panda intake go through Bash scripts — no calendar,
-    // sheets, or ollama MCP needed. Removing 21 dead-weight tool schemas.
-    'discord_dms_brenda': { removeServers: ['google-calendar', 'google-sheets', 'ollama'] },
-    'discord_dms_paden':  { removeServers: ['google-calendar', 'google-sheets', 'ollama'] },
-    'discord_dms_danny':  { removeServers: ['google-calendar', 'google-sheets', 'ollama'] },
-
     // Chore/pet sheriff. Sheets + nanoclaw only. No ollama (tool orchestration
     // and pet voice lines stay in the main model — they're short).
     'discord_silverthorne': { removeServers: ['ollama'] },
@@ -752,10 +745,14 @@ async function runQuery(
                 // writes, not chat replies — they must NOT block the
                 // agent's actual text response from being posted.
                 const input = b.input as
-                  | { label?: string; pin?: boolean; upsert?: boolean }
+                  | { label?: string; pin?: boolean; upsert?: boolean; sender?: string }
                   | undefined;
                 const isPinOrLabeled = !!(input?.label || input?.pin || input?.upsert);
-                if (!isPinOrLabeled) sentViaIpc = true;
+                // Webhook persona messages (sender set = Voss/Nyx/Zima) are
+                // supplementary flavor, not the agent's main reply. Don't
+                // suppress the agent's text output just because a pet reacted.
+                const isPersonaMessage = !!input?.sender;
+                if (!isPinOrLabeled && !isPersonaMessage) sentViaIpc = true;
               }
               const line =
                 JSON.stringify({
