@@ -43,8 +43,11 @@ vi.mock('discord.js', () => {
   };
 
   const GatewayIntentBits = {
-    Guilds: 1, GuildMessages: 2, MessageContent: 4,
-    DirectMessages: 8, GuildMessageReactions: 64,
+    Guilds: 1,
+    GuildMessages: 2,
+    MessageContent: 4,
+    DirectMessages: 8,
+    GuildMessageReactions: 64,
   };
 
   const Partials = { Message: 0, User: 1, GuildMember: 2, Reaction: 3 };
@@ -54,63 +57,108 @@ vi.mock('discord.js', () => {
     eventHandlers = new Map<string, Handler[]>();
     user: any = { id: '999888777', tag: 'Andy#1234' };
     private _ready = false;
-    constructor(_opts: any) { clientRef.current = this; }
+    constructor(_opts: any) {
+      clientRef.current = this;
+    }
     on(event: string, handler: Handler) {
       const existing = this.eventHandlers.get(event) || [];
       existing.push(handler);
       this.eventHandlers.set(event, existing);
       return this;
     }
-    once(event: string, handler: Handler) { return this.on(event, handler); }
+    once(event: string, handler: Handler) {
+      return this.on(event, handler);
+    }
     async login(_token: string) {
       this._ready = true;
       for (const h of this.eventHandlers.get('ready') || []) h({ user: this.user });
     }
-    isReady() { return this._ready; }
+    isReady() {
+      return this._ready;
+    }
     channels = {
       fetch: vi.fn().mockResolvedValue({
         send: vi.fn().mockResolvedValue({ id: 'msg-1' }),
         sendTyping: vi.fn().mockResolvedValue(undefined),
         fetchWebhooks: vi.fn().mockResolvedValue(new Map()),
-        createWebhook: vi.fn().mockResolvedValue({ id: 'wh1', token: 'tok', send: vi.fn().mockResolvedValue({ id: 'wh-msg-1' }) }),
+        createWebhook: vi
+          .fn()
+          .mockResolvedValue({ id: 'wh1', token: 'tok', send: vi.fn().mockResolvedValue({ id: 'wh-msg-1' }) }),
       }),
     };
     application = { commands: { set: vi.fn().mockResolvedValue(undefined) } };
     guilds = { cache: new Map() };
-    destroy() { this._ready = false; }
+    destroy() {
+      this._ready = false;
+    }
   }
 
   class TextChannel {}
 
   class SlashCommandBuilder {
-    setName(_n: string) { return this; }
-    setDescription(_d: string) { return this; }
-    addStringOption(_fn: any) { return this; }
-    addNumberOption(_fn: any) { return this; }
-    toJSON() { return {}; }
+    setName(_n: string) {
+      return this;
+    }
+    setDescription(_d: string) {
+      return this;
+    }
+    addStringOption(_fn: any) {
+      return this;
+    }
+    addNumberOption(_fn: any) {
+      return this;
+    }
+    toJSON() {
+      return {};
+    }
   }
 
   class ActionRowBuilder {
-    addComponents(..._c: any[]) { return this; }
-    toJSON() { return {}; }
+    addComponents(..._c: any[]) {
+      return this;
+    }
+    toJSON() {
+      return {};
+    }
   }
 
   class ButtonBuilder {
-    setCustomId(_id: string) { return this; }
-    setLabel(_l: string) { return this; }
-    setStyle(_s: any) { return this; }
-    setDisabled(_d: boolean) { return this; }
+    setCustomId(_id: string) {
+      return this;
+    }
+    setLabel(_l: string) {
+      return this;
+    }
+    setStyle(_s: any) {
+      return this;
+    }
+    setDisabled(_d: boolean) {
+      return this;
+    }
   }
 
   class StringSelectMenuBuilder {
-    setCustomId(_id: string) { return this; }
-    setPlaceholder(_p: string) { return this; }
-    addOptions(..._o: any[]) { return this; }
+    setCustomId(_id: string) {
+      return this;
+    }
+    setPlaceholder(_p: string) {
+      return this;
+    }
+    addOptions(..._o: any[]) {
+      return this;
+    }
   }
 
   return {
-    Client: MockClient, Events, GatewayIntentBits, Partials, ButtonStyle,
-    TextChannel, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder,
+    Client: MockClient,
+    Events,
+    GatewayIntentBits,
+    Partials,
+    ButtonStyle,
+    TextChannel,
+    SlashCommandBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
     StringSelectMenuBuilder,
     // These are just type guards in the real library; stub as no-ops
     AutocompleteInteraction: class {},
@@ -177,12 +225,8 @@ function createMessage(overrides: {
       displayName: overrides.authorDisplayName ?? 'Alice',
       bot: overrides.isBot ?? false,
     },
-    member: overrides.memberDisplayName
-      ? { displayName: overrides.memberDisplayName }
-      : null,
-    guild: overrides.guildName
-      ? { name: overrides.guildName }
-      : null,
+    member: overrides.memberDisplayName ? { displayName: overrides.memberDisplayName } : null,
+    guild: overrides.guildName ? { name: overrides.guildName } : null,
     channel: {
       name: overrides.channelName ?? 'general',
       messages: {
@@ -277,15 +321,15 @@ describe('DiscordChannel', () => {
       });
       await triggerMessage(msg);
 
-      expect(config.onMetadata).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.any(Boolean),
-      );
+      expect(config.onMetadata).toHaveBeenCalledWith(expect.any(String), expect.any(String), expect.any(Boolean));
       expect(config.onInbound).toHaveBeenCalledWith(
         '1490924818869260328',
         null,
-        expect.objectContaining({ id: 'msg_001', kind: 'chat', content: expect.objectContaining({ text: 'Hello everyone', sender_name: 'Alice' }) }),
+        expect.objectContaining({
+          id: 'msg_001',
+          kind: 'chat',
+          content: expect.objectContaining({ text: 'Hello everyone', sender_name: 'Alice' }),
+        }),
       );
     });
 
@@ -301,11 +345,7 @@ describe('DiscordChannel', () => {
       });
       await triggerMessage(msg);
 
-      expect(config.onMetadata).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.any(Boolean),
-      );
+      expect(config.onMetadata).toHaveBeenCalledWith(expect.any(String), expect.any(String), expect.any(Boolean));
       expect(config.onInbound).not.toHaveBeenCalled();
     });
 
@@ -390,11 +430,7 @@ describe('DiscordChannel', () => {
       });
       await triggerMessage(msg);
 
-      expect(config.onMetadata).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.any(Boolean),
-      );
+      expect(config.onMetadata).toHaveBeenCalledWith(expect.any(String), expect.any(String), expect.any(Boolean));
     });
   });
 
@@ -495,9 +531,7 @@ describe('DiscordChannel', () => {
       const channel = new DiscordChannel('test-token');
       await channel.setup(config);
 
-      const attachments = new Map([
-        ['att1', { name: 'photo.png', contentType: 'image/png' }],
-      ]);
+      const attachments = new Map([['att1', { name: 'photo.png', contentType: 'image/png' }]]);
       const msg = createMessage({
         content: '',
         attachments,
@@ -519,9 +553,7 @@ describe('DiscordChannel', () => {
       const channel = new DiscordChannel('test-token');
       await channel.setup(config);
 
-      const attachments = new Map([
-        ['att1', { name: 'clip.mp4', contentType: 'video/mp4' }],
-      ]);
+      const attachments = new Map([['att1', { name: 'clip.mp4', contentType: 'video/mp4' }]]);
       const msg = createMessage({
         content: '',
         attachments,
@@ -543,9 +575,7 @@ describe('DiscordChannel', () => {
       const channel = new DiscordChannel('test-token');
       await channel.setup(config);
 
-      const attachments = new Map([
-        ['att1', { name: 'report.pdf', contentType: 'application/pdf' }],
-      ]);
+      const attachments = new Map([['att1', { name: 'report.pdf', contentType: 'application/pdf' }]]);
       const msg = createMessage({
         content: '',
         attachments,
@@ -567,9 +597,7 @@ describe('DiscordChannel', () => {
       const channel = new DiscordChannel('test-token');
       await channel.setup(config);
 
-      const attachments = new Map([
-        ['att1', { name: 'photo.jpg', contentType: 'image/jpeg' }],
-      ]);
+      const attachments = new Map([['att1', { name: 'photo.jpg', contentType: 'image/jpeg' }]]);
       const msg = createMessage({
         content: 'Check this out',
         attachments,

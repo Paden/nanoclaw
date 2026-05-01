@@ -9,9 +9,7 @@ import {
 
 describe('accumulateLetterStates', () => {
   it('maps each guessed letter to its best state across guesses', () => {
-    const states = accumulateLetterStates([
-      { guess: 'CAMPS', grid: '⬜🟨⬜🟩⬜' },
-    ]);
+    const states = accumulateLetterStates([{ guess: 'CAMPS', grid: '⬜🟨⬜🟩⬜' }]);
     expect(states.get('C')).toBe('miss');
     expect(states.get('A')).toBe('yellow');
     expect(states.get('M')).toBe('miss');
@@ -61,18 +59,13 @@ describe('renderGuessStack', () => {
       { guess: 'camps', grid: '🟩🟨⬜⬜⬜' },
       { guess: 'tangy', grid: '⬜🟨🟨⬜🟩' },
     ]);
-    expect(stack.split('\n')).toEqual([
-      '🟩🟨⬜⬜⬜ `CAMPS`',
-      '⬜🟨🟨⬜🟩 `TANGY`',
-    ]);
+    expect(stack.split('\n')).toEqual(['🟩🟨⬜⬜⬜ `CAMPS`', '⬜🟨🟨⬜🟩 `TANGY`']);
   });
 });
 
 describe('formatWordleReply', () => {
   it('returns only the message for non-scored statuses', () => {
-    expect(
-      formatWordleReply({ status: 'invalid', message: 'not in dictionary' }),
-    ).toBe('not in dictionary');
+    expect(formatWordleReply({ status: 'invalid', message: 'not in dictionary' })).toBe('not in dictionary');
   });
 
   it('builds full stack + keyboard + solved footer on solve', () => {

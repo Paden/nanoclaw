@@ -8,8 +8,7 @@ describe('stripCard', () => {
   });
 
   it('cuts the AGENT REF section and trailing whitespace', () => {
-    const out =
-      '🍼 Emilio today\n• 4oz formula 09:00\n\n═══ AGENT REF ═══\nrow 5: ...\nrow 6: ...';
+    const out = '🍼 Emilio today\n• 4oz formula 09:00\n\n═══ AGENT REF ═══\nrow 5: ...\nrow 6: ...';
     expect(stripCard(out)).toBe('🍼 Emilio today\n• 4oz formula 09:00');
   });
 

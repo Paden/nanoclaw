@@ -123,9 +123,7 @@ describe('choreLabel', () => {
       schedule: '10:30',
       duration_min: 2,
     });
-    expect(choreLabel(c, 'overdue', 3)).toBe(
-      'Refill Eni water bowl · 10:30am (OVERDUE · +3 XP)',
-    );
+    expect(choreLabel(c, 'overdue', 3)).toBe('Refill Eni water bowl · 10:30am (OVERDUE · +3 XP)');
   });
 
   it('formats a to-do without time', () => {
@@ -135,9 +133,7 @@ describe('choreLabel', () => {
       schedule: '',
       duration_min: 60,
     });
-    expect(choreLabel(c, 'todo', 90)).toBe(
-      'Sell King bed frame (to-do · +90 XP)',
-    );
+    expect(choreLabel(c, 'todo', 90)).toBe('Sell King bed frame (to-do · +90 XP)');
   });
 });
 
@@ -182,30 +178,14 @@ describe('submitStatus', () => {
 
 describe('categoryForChore', () => {
   it('maps water / feed / trash / reservoir / gear / clean / default', () => {
-    expect(categoryForChore(chore({ name: 'Refill Eni water bowl' }))).toBe(
-      'water',
-    );
-    expect(categoryForChore(chore({ name: 'Feed Eni (breakfast)' }))).toBe(
-      'feed',
-    );
-    expect(categoryForChore(chore({ name: 'Clean baby bottles' }))).toBe(
-      'feed',
-    );
-    expect(categoryForChore(chore({ name: 'Take trash to curb' }))).toBe(
-      'trash',
-    );
-    expect(
-      categoryForChore(chore({ name: 'Fill Formula Maker reservoir' })),
-    ).toBe('reservoir');
-    expect(categoryForChore(chore({ name: 'Change Formula Maker gear' }))).toBe(
-      'gear',
-    );
-    expect(categoryForChore(chore({ name: 'Vacuum living area' }))).toBe(
-      'clean',
-    );
-    expect(categoryForChore(chore({ name: 'Sell King bed frame' }))).toBe(
-      'default',
-    );
+    expect(categoryForChore(chore({ name: 'Refill Eni water bowl' }))).toBe('water');
+    expect(categoryForChore(chore({ name: 'Feed Eni (breakfast)' }))).toBe('feed');
+    expect(categoryForChore(chore({ name: 'Clean baby bottles' }))).toBe('feed');
+    expect(categoryForChore(chore({ name: 'Take trash to curb' }))).toBe('trash');
+    expect(categoryForChore(chore({ name: 'Fill Formula Maker reservoir' }))).toBe('reservoir');
+    expect(categoryForChore(chore({ name: 'Change Formula Maker gear' }))).toBe('gear');
+    expect(categoryForChore(chore({ name: 'Vacuum living area' }))).toBe('clean');
+    expect(categoryForChore(chore({ name: 'Sell King bed frame' }))).toBe('default');
   });
 });
 
@@ -219,9 +199,7 @@ describe('filterStaleRepeating', () => {
     });
 
   it('passes singletons through unchanged', () => {
-    const chores = [
-      chore({ chore_id: 'dishes', name: 'Dishes', schedule: '21:00' }),
-    ];
+    const chores = [chore({ chore_id: 'dishes', name: 'Dishes', schedule: '21:00' })];
     const result = filterStaleRepeating(chores, nowAt(22));
     expect(result.map((c) => c.chore_id)).toEqual(['dishes']);
   });
@@ -236,23 +214,14 @@ describe('filterStaleRepeating', () => {
     // 4:00pm: 8:00, 10:30, 15:30 are passed; 20:00 is future.
     // Expect: the latest passed (15:30) + the single future (20:00).
     const out = filterStaleRepeating(series, nowAt(16));
-    expect(out.map((c) => c.chore_id).sort()).toEqual([
-      'eni_water_1530',
-      'eni_water_2000',
-    ]);
+    expect(out.map((c) => c.chore_id).sort()).toEqual(['eni_water_1530', 'eni_water_2000']);
   });
 
   it('shows only the next upcoming slot when nothing has passed yet', () => {
-    const series = [
-      water('eni_water_800', '08:00'),
-      water('eni_water_1030', '10:30'),
-    ];
+    const series = [water('eni_water_800', '08:00'), water('eni_water_1030', '10:30')];
     const out = filterStaleRepeating(series, nowAt(6));
     // Both are future; keep all future (caller's current policy).
-    expect(out.map((c) => c.chore_id)).toEqual([
-      'eni_water_800',
-      'eni_water_1030',
-    ]);
+    expect(out.map((c) => c.chore_id)).toEqual(['eni_water_800', 'eni_water_1030']);
   });
 });
 
@@ -346,16 +315,12 @@ describe('computeBundleOption', () => {
 
 describe('buildFactLine', () => {
   it('returns "nothing new" when no chores were newly logged', () => {
-    const fact = buildFactLine('Paden', [
-      { chore_id: 'a', name: 'A', skipped: 'already_done' },
-    ]);
+    const fact = buildFactLine('Paden', [{ chore_id: 'a', name: 'A', skipped: 'already_done' }]);
     expect(fact).toBe('Nothing new to log — already done today.');
   });
 
   it('returns single-chore form when only one chore was logged', () => {
-    const fact = buildFactLine('Paden', [
-      { chore_id: 'a', name: 'Feed Eni', xp: 5, status: 'on-time' },
-    ]);
+    const fact = buildFactLine('Paden', [{ chore_id: 'a', name: 'Feed Eni', xp: 5, status: 'on-time' }]);
     expect(fact).toBe('Paden did: Feed Eni');
   });
 

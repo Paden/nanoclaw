@@ -76,9 +76,7 @@ export function formatQotdStatusReply(r: QotdStatusReplyInput): string {
 
   if (open.length > 0) {
     const header =
-      open.length === 1
-        ? `💌 1 panda question waiting for you:`
-        : `💌 ${open.length} panda questions waiting for you:`;
+      open.length === 1 ? `💌 1 panda question waiting for you:` : `💌 ${open.length} panda questions waiting for you:`;
     lines.push(header, '');
     lines.push(...renderQList(open, today));
   } else {

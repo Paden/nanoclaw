@@ -72,25 +72,14 @@ export function parseSchedule(
   return null;
 }
 
-export type ChoreBucket =
-  | 'overdue'
-  | 'upcoming_today'
-  | 'this_week'
-  | 'todo'
-  | 'done';
+export type ChoreBucket = 'overdue' | 'upcoming_today' | 'this_week' | 'todo' | 'done';
 
 // Classify a chore for autocomplete ordering + labels. "overdue" = scheduled
 // time today has already passed and no Chore Log entry yet. "upcoming_today"
 // = scheduled today but not yet due. "this_week" = weekly scheduled this week
 // (not today). "todo" = one-off / as-needed. "done" = already logged today.
-export function classifyChore(
-  chore: ChoreRow,
-  now: ChicagoNow,
-  todayLog: ChoreLogRow[],
-): ChoreBucket {
-  const loggedToday = todayLog.some(
-    (l) => l.chore_id === chore.chore_id && l.status !== 'auto_skipped',
-  );
+export function classifyChore(chore: ChoreRow, now: ChicagoNow, todayLog: ChoreLogRow[]): ChoreBucket {
+  const loggedToday = todayLog.some((l) => l.chore_id === chore.chore_id && l.status !== 'auto_skipped');
   if (loggedToday) return 'done';
 
   const parsed = parseSchedule(chore.cadence, chore.schedule);
@@ -118,17 +107,11 @@ export function fmt12mins(minutesSinceMidnight: number): string {
   const m = minutesSinceMidnight % 60;
   const ampm = h < 12 ? 'am' : 'pm';
   const h12 = h % 12 === 0 ? 12 : h % 12;
-  return m === 0
-    ? `${h12}:00${ampm}`
-    : `${h12}:${String(m).padStart(2, '0')}${ampm}`;
+  return m === 0 ? `${h12}:00${ampm}` : `${h12}:${String(m).padStart(2, '0')}${ampm}`;
 }
 
 // "Refill Eni water bowl · 10:30am (OVERDUE · +3 XP)"
-export function choreLabel(
-  chore: ChoreRow,
-  bucket: ChoreBucket,
-  xp: number,
-): string {
+export function choreLabel(chore: ChoreRow, bucket: ChoreBucket, xp: number): string {
   const parsed = parseSchedule(chore.cadence, chore.schedule);
   const time = parsed ? ` · ${fmt12mins(parsed.minutes)}` : '';
   let statusTag = '';
@@ -156,10 +139,7 @@ export function choreLabel(
 // XP per the silverthorne spec: duration_min × 1.5 on-time, × 1.0 late,
 // × 0.5 very_late (3+ nags). For /chore submit, we default to on-time unless
 // nag state says otherwise.
-export function xpForChore(
-  chore: ChoreRow,
-  status: 'on-time' | 'late' | 'very_late',
-): number {
+export function xpForChore(chore: ChoreRow, status: 'on-time' | 'late' | 'very_late'): number {
   const mult = status === 'very_late' ? 0.5 : status === 'late' ? 1.0 : 1.5;
   return Math.round((chore.duration_min || 0) * mult);
 }
@@ -167,10 +147,7 @@ export function xpForChore(
 // Determine submit status from now vs. schedule + nag state. MVP: if current
 // time is before schedule+nag_after_min (or no schedule), it's 'on-time'. If
 // past 2 nag intervals, 'very_late'. Otherwise 'late'.
-export function submitStatus(
-  chore: ChoreRow,
-  now: ChicagoNow,
-): 'on-time' | 'late' | 'very_late' {
+export function submitStatus(chore: ChoreRow, now: ChicagoNow): 'on-time' | 'late' | 'very_late' {
   const parsed = parseSchedule(chore.cadence, chore.schedule);
   if (!parsed) return 'on-time';
   const sinceDue = now.minutesSinceMidnight - parsed.minutes;
@@ -208,8 +185,7 @@ export function categoryForChore(chore: ChoreRow): string {
   if (/trash|bins?\b/.test(name)) return 'trash';
   if (/reservoir/.test(name)) return 'reservoir';
   if (/\bgear\b/.test(name)) return 'gear';
-  if (/clean|wash|wipe|vacuum|bathroom|dishes|counter|roomba/.test(name))
-    return 'clean';
+  if (/clean|wash|wipe|vacuum|bathroom|dishes|counter|roomba/.test(name)) return 'clean';
   return 'default';
 }
 
@@ -219,10 +195,7 @@ export function categoryForChore(chore: ChoreRow): string {
 // most recent passed time + any future time today. Historical "stale"
 // overdue ones drop out. This is the autocomplete-side hygiene; the sweeper
 // cron writes auto_skipped rows so the sheet also reflects reality.
-export function filterStaleRepeating(
-  chores: ChoreRow[],
-  now: ChicagoNow,
-): ChoreRow[] {
+export function filterStaleRepeating(chores: ChoreRow[], now: ChicagoNow): ChoreRow[] {
   const byName = new Map<string, ChoreRow[]>();
   for (const c of chores) {
     const k = c.name.toLowerCase();

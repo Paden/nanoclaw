@@ -335,10 +335,7 @@ function buildMounts(
 
   // Google Calendar MCP credentials — needed for Sheets/Calendar access in all groups
   const gcalCredsPath = path.join(DATA_DIR, 'google-calendar', 'gcp-oauth.keys.json');
-  const gcalTokenPath = path.join(
-    process.env.HOME || os.homedir(),
-    '.config', 'google-calendar-mcp', 'tokens.json',
-  );
+  const gcalTokenPath = path.join(process.env.HOME || os.homedir(), '.config', 'google-calendar-mcp', 'tokens.json');
   if (fs.existsSync(gcalCredsPath)) {
     mounts.push({
       hostPath: gcalCredsPath,

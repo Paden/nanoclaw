@@ -38,9 +38,7 @@ function emojiToState(cell: string): LetterState {
   return 'miss';
 }
 
-export function accumulateLetterStates(
-  history: WordleHistoryEntry[],
-): Map<string, LetterState> {
+export function accumulateLetterStates(history: WordleHistoryEntry[]): Map<string, LetterState> {
   const states = new Map<string, LetterState>();
   for (const entry of history) {
     const cells = Array.from(entry.grid); // codepoints, handles surrogate pairs
@@ -78,9 +76,7 @@ export function renderKeyboard(history: WordleHistoryEntry[]): string {
 }
 
 export function renderGuessStack(history: WordleHistoryEntry[]): string {
-  return history
-    .map((h) => `${h.grid} \`${h.guess.toUpperCase()}\``)
-    .join('\n');
+  return history.map((h) => `${h.grid} \`${h.guess.toUpperCase()}\``).join('\n');
 }
 
 export interface WordleReplyInput {

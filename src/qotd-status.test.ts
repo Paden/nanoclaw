@@ -108,8 +108,7 @@ describe('formatQotdStatusReply', () => {
           qNum: 11,
           day: 11,
           date: '2026-04-18',
-          question:
-            'Take four minutes and tell your partner your life story...',
+          question: 'Take four minutes and tell your partner your life story...',
         },
       ],
     });

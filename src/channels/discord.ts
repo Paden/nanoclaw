@@ -27,24 +27,12 @@ import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
 
-import {
-  ASSISTANT_NAME,
-  DISCORD_REACTIONS_INBOUND,
-  TRIGGER_PATTERN,
-  WEBHOOK_PERSONAS,
-} from '../config.js';
+import { ASSISTANT_NAME, DISCORD_REACTIONS_INBOUND, TRIGGER_PATTERN, WEBHOOK_PERSONAS } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 import { registerChannelAdapter } from './channel-registry.js';
-import {
-  ChannelAdapter,
-  ChannelSetup,
-  OutboundMessage,
-} from './adapter.js';
-import {
-  formatWordleReply,
-  formatWordleStatusReply,
-} from '../wordle-keyboard.js';
+import { ChannelAdapter, ChannelSetup, OutboundMessage } from './adapter.js';
+import { formatWordleReply, formatWordleStatusReply } from '../wordle-keyboard.js';
 import { formatQotdStatusReply } from '../qotd-status.js';
 import { stripCard, fitDiscordReply } from '../state-card.js';
 
@@ -85,12 +73,7 @@ export class DiscordChannel implements ChannelAdapter {
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMessageReactions,
       ],
-      partials: [
-        Partials.Message,
-        Partials.User,
-        Partials.GuildMember,
-        Partials.Reaction,
-      ],
+      partials: [Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction],
     });
 
     this.client.on(Events.MessageCreate, async (message: Message) => {
@@ -115,10 +98,7 @@ export class DiscordChannel implements ChannelAdapter {
       const channelId = message.channelId;
       let content = message.content;
       const timestamp = message.createdAt.toISOString();
-      const senderName =
-        message.member?.displayName ||
-        message.author.displayName ||
-        message.author.username;
+      const senderName = message.member?.displayName || message.author.displayName || message.author.username;
       const sender = message.author.id;
       const msgId = message.id;
 
@@ -128,14 +108,10 @@ export class DiscordChannel implements ChannelAdapter {
       if (this.client?.user) {
         const botId = this.client.user.id;
         const isBotMentioned =
-          message.mentions.users.has(botId) ||
-          content.includes(`<@${botId}>`) ||
-          content.includes(`<@!${botId}>`);
+          message.mentions.users.has(botId) || content.includes(`<@${botId}>`) || content.includes(`<@!${botId}>`);
 
         if (isBotMentioned) {
-          content = content
-            .replace(new RegExp(`<@!?${botId}>`, 'g'), '')
-            .trim();
+          content = content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
           if (!TRIGGER_PATTERN.test(content)) {
             content = `@${ASSISTANT_NAME} ${content}`;
           }
@@ -143,20 +119,18 @@ export class DiscordChannel implements ChannelAdapter {
       }
 
       if (message.attachments.size > 0) {
-        const attachmentDescriptions = [...message.attachments.values()].map(
-          (att) => {
-            const contentType = att.contentType || '';
-            if (contentType.startsWith('image/')) {
-              return `[Image: ${att.name || 'image'}]`;
-            } else if (contentType.startsWith('video/')) {
-              return `[Video: ${att.name || 'video'}]`;
-            } else if (contentType.startsWith('audio/')) {
-              return `[Audio: ${att.name || 'audio'}]`;
-            } else {
-              return `[File: ${att.name || 'file'}]`;
-            }
-          },
-        );
+        const attachmentDescriptions = [...message.attachments.values()].map((att) => {
+          const contentType = att.contentType || '';
+          if (contentType.startsWith('image/')) {
+            return `[Image: ${att.name || 'image'}]`;
+          } else if (contentType.startsWith('video/')) {
+            return `[Video: ${att.name || 'video'}]`;
+          } else if (contentType.startsWith('audio/')) {
+            return `[Audio: ${att.name || 'audio'}]`;
+          } else {
+            return `[File: ${att.name || 'file'}]`;
+          }
+        });
         if (content) {
           content = `${content}\n${attachmentDescriptions.join('\n')}`;
         } else {
@@ -166,20 +140,11 @@ export class DiscordChannel implements ChannelAdapter {
 
       if (message.reference?.messageId) {
         try {
-          const repliedTo = await message.channel.messages.fetch(
-            message.reference.messageId,
-          );
+          const repliedTo = await message.channel.messages.fetch(message.reference.messageId);
           const replyAuthor =
-            repliedTo.member?.displayName ||
-            repliedTo.author.displayName ||
-            repliedTo.author.username;
-          const repliedText = (repliedTo.content ?? '')
-            .replace(/\s+/g, ' ')
-            .trim();
-          const snippet =
-            repliedText.length > 200
-              ? `${repliedText.slice(0, 200)}…`
-              : repliedText;
+            repliedTo.member?.displayName || repliedTo.author.displayName || repliedTo.author.username;
+          const repliedText = (repliedTo.content ?? '').replace(/\s+/g, ' ').trim();
+          const snippet = repliedText.length > 200 ? `${repliedText.slice(0, 200)}…` : repliedText;
           const quoted = snippet ? ` "${snippet}"` : '';
           content = `[Reply to ${replyAuthor}${quoted}] ${content}`;
         } catch {
@@ -256,10 +221,7 @@ export class DiscordChannel implements ChannelAdapter {
         /* ignore */
       }
 
-      const userName =
-        ('globalName' in user && user.globalName) ||
-        ('username' in user && user.username) ||
-        'Unknown';
+      const userName = ('globalName' in user && user.globalName) || ('username' in user && user.username) || 'Unknown';
       const timestamp = new Date().toISOString();
 
       this.channelSetup?.onInbound(channelId, null, {
@@ -281,100 +243,91 @@ export class DiscordChannel implements ChannelAdapter {
       log.info('Discord reaction event', { channelId, action, emoji, user: userName });
     };
 
-    this.client.on(Events.MessageReactionAdd, (reaction, user) =>
-      handleReaction(reaction, user, 'add'),
-    );
-    this.client.on(Events.MessageReactionRemove, (reaction, user) =>
-      handleReaction(reaction, user, 'remove'),
-    );
+    this.client.on(Events.MessageReactionAdd, (reaction, user) => handleReaction(reaction, user, 'add'));
+    this.client.on(Events.MessageReactionRemove, (reaction, user) => handleReaction(reaction, user, 'remove'));
 
-    this.client.on(
-      Events.InteractionCreate,
-      async (interaction: Interaction) => {
-        if (interaction.isChatInputCommand()) {
-          if (interaction.commandName === 'health') {
-            await this.handleHealthCommand(interaction);
-            return;
-          }
-          if (interaction.commandName === 'wordle') {
-            await this.handleWordleCommand(interaction);
-            return;
-          }
-          if (interaction.commandName === 'wordle-status') {
-            await this.handleWordleStatusCommand(interaction);
-            return;
-          }
-          if (interaction.commandName === 'saga') {
-            await this.handleSagaCommand(interaction);
-            return;
-          }
-          if (interaction.commandName === 'emilio-week') {
-            await this.handleEmilioWeekCommand(interaction);
-            return;
-          }
-          if (interaction.commandName === 'qotd') {
-            await this.handleQotdCommand(interaction);
-            return;
-          }
-          if (interaction.commandName === 'qotd-status') {
-            await this.handleQotdStatusCommand(interaction);
-            return;
-          }
-          const stateCmd = DiscordChannel.STATE_CARD_COMMANDS.find(
-            (c) => c.name === interaction.commandName,
-          );
-          if (stateCmd) {
-            await this.handleStateCardCommand(interaction, stateCmd);
-            return;
-          }
-          if (interaction.commandName === 'calendar') {
-            await this.handleCalendarCommand(interaction);
-            return;
-          }
-          if (interaction.commandName === 'chore') {
-            await this.handleChoreCommand(interaction);
-            return;
-          }
-          if (
-            interaction.commandName === 'asleep' ||
-            interaction.commandName === 'awake' ||
-            interaction.commandName === 'feeding' ||
-            interaction.commandName === 'update-feeding' ||
-            interaction.commandName === 'diaper'
-          ) {
-            await this.handleEmilioSlashCommand(interaction);
-            return;
-          }
+    this.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+      if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === 'health') {
+          await this.handleHealthCommand(interaction);
           return;
         }
-        if (interaction.isAutocomplete()) {
-          if (interaction.commandName === 'chore') {
-            await this.handleChoreAutocomplete(interaction);
-            return;
-          }
-          if (interaction.commandName === 'update-feeding') {
-            await this.handleEmilioUpdateFeedingAutocomplete(interaction);
-            return;
-          }
+        if (interaction.commandName === 'wordle') {
+          await this.handleWordleCommand(interaction);
+          return;
         }
-        if (interaction.isButton()) {
-          if (interaction.customId.startsWith('saga_nav:')) {
-            await this.handleSagaNav(interaction);
-            return;
-          }
-          if (interaction.customId.startsWith('emilio_day:')) {
-            await this.handleEmilioHistoryNav(interaction);
-            return;
-          }
+        if (interaction.commandName === 'wordle-status') {
+          await this.handleWordleStatusCommand(interaction);
+          return;
         }
-        if (interaction.isStringSelectMenu()) {
-          if (interaction.customId.startsWith('qotd:pick:')) {
-            await this.handleQotdSelect(interaction);
-            return;
-          }
+        if (interaction.commandName === 'saga') {
+          await this.handleSagaCommand(interaction);
+          return;
         }
-      },
-    );
+        if (interaction.commandName === 'emilio-week') {
+          await this.handleEmilioWeekCommand(interaction);
+          return;
+        }
+        if (interaction.commandName === 'qotd') {
+          await this.handleQotdCommand(interaction);
+          return;
+        }
+        if (interaction.commandName === 'qotd-status') {
+          await this.handleQotdStatusCommand(interaction);
+          return;
+        }
+        const stateCmd = DiscordChannel.STATE_CARD_COMMANDS.find((c) => c.name === interaction.commandName);
+        if (stateCmd) {
+          await this.handleStateCardCommand(interaction, stateCmd);
+          return;
+        }
+        if (interaction.commandName === 'calendar') {
+          await this.handleCalendarCommand(interaction);
+          return;
+        }
+        if (interaction.commandName === 'chore') {
+          await this.handleChoreCommand(interaction);
+          return;
+        }
+        if (
+          interaction.commandName === 'asleep' ||
+          interaction.commandName === 'awake' ||
+          interaction.commandName === 'feeding' ||
+          interaction.commandName === 'update-feeding' ||
+          interaction.commandName === 'diaper'
+        ) {
+          await this.handleEmilioSlashCommand(interaction);
+          return;
+        }
+        return;
+      }
+      if (interaction.isAutocomplete()) {
+        if (interaction.commandName === 'chore') {
+          await this.handleChoreAutocomplete(interaction);
+          return;
+        }
+        if (interaction.commandName === 'update-feeding') {
+          await this.handleEmilioUpdateFeedingAutocomplete(interaction);
+          return;
+        }
+      }
+      if (interaction.isButton()) {
+        if (interaction.customId.startsWith('saga_nav:')) {
+          await this.handleSagaNav(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('emilio_day:')) {
+          await this.handleEmilioHistoryNav(interaction);
+          return;
+        }
+      }
+      if (interaction.isStringSelectMenu()) {
+        if (interaction.customId.startsWith('qotd:pick:')) {
+          await this.handleQotdSelect(interaction);
+          return;
+        }
+      }
+    });
 
     this.client.on(Events.Error, (err) => {
       log.error('Discord client error', { err: err.message });
@@ -387,9 +340,7 @@ export class DiscordChannel implements ChannelAdapter {
           id: readyClient.user.id,
         });
         console.log(`\n  Discord bot: ${readyClient.user.tag}`);
-        console.log(
-          `  Use /chatid command or check channel IDs in Discord settings\n`,
-        );
+        console.log(`  Use /chatid command or check channel IDs in Discord settings\n`);
 
         try {
           const commands = [
@@ -401,8 +352,12 @@ export class DiscordChannel implements ChannelAdapter {
               .setName('wordle')
               .setDescription('Submit a 5-letter Wordle guess (#family-fun only)')
               .addStringOption((opt) =>
-                opt.setName('word').setDescription('Your 5-letter guess')
-                  .setRequired(true).setMinLength(5).setMaxLength(5),
+                opt
+                  .setName('word')
+                  .setDescription('Your 5-letter guess')
+                  .setRequired(true)
+                  .setMinLength(5)
+                  .setMaxLength(5),
               )
               .toJSON(),
             new SlashCommandBuilder()
@@ -421,8 +376,12 @@ export class DiscordChannel implements ChannelAdapter {
               .setName('qotd')
               .setDescription('Answer a panda question of the day (#panda only)')
               .addStringOption((opt) =>
-                opt.setName('answer').setDescription('Your answer')
-                  .setRequired(true).setMinLength(1).setMaxLength(1500),
+                opt
+                  .setName('answer')
+                  .setDescription('Your answer')
+                  .setRequired(true)
+                  .setMinLength(1)
+                  .setMaxLength(1500),
               )
               .toJSON(),
             new SlashCommandBuilder()
@@ -430,10 +389,7 @@ export class DiscordChannel implements ChannelAdapter {
               .setDescription('Show panda questions still waiting for you (#panda only)')
               .toJSON(),
             ...DiscordChannel.STATE_CARD_COMMANDS.map((c) =>
-              new SlashCommandBuilder()
-                .setName(c.name)
-                .setDescription(c.description)
-                .toJSON(),
+              new SlashCommandBuilder().setName(c.name).setDescription(c.description).toJSON(),
             ),
             new SlashCommandBuilder()
               .setName('calendar')
@@ -443,63 +399,70 @@ export class DiscordChannel implements ChannelAdapter {
               .setName('chore')
               .setDescription('Check off a silverthorne chore (#silverthorne only)')
               .addStringOption((opt) =>
-                opt.setName('chore').setDescription('Pick a chore from the autocomplete list')
-                  .setRequired(true).setAutocomplete(true),
+                opt
+                  .setName('chore')
+                  .setDescription('Pick a chore from the autocomplete list')
+                  .setRequired(true)
+                  .setAutocomplete(true),
               )
               .toJSON(),
             new SlashCommandBuilder()
               .setName('asleep')
               .setDescription('Log Emilio falling asleep (#emilio-care)')
               .addStringOption((opt) =>
-                opt.setName('time').setDescription('Optional: 5m, 2:30pm, 14:30. Defaults to now.')
-                  .setRequired(false),
+                opt.setName('time').setDescription('Optional: 5m, 2:30pm, 14:30. Defaults to now.').setRequired(false),
               )
               .toJSON(),
             new SlashCommandBuilder()
               .setName('awake')
               .setDescription('Close the open nap (#emilio-care)')
               .addStringOption((opt) =>
-                opt.setName('time').setDescription('Optional: 5m, 2:30pm, 14:30. Defaults to now.')
-                  .setRequired(false),
+                opt.setName('time').setDescription('Optional: 5m, 2:30pm, 14:30. Defaults to now.').setRequired(false),
               )
               .toJSON(),
             new SlashCommandBuilder()
               .setName('feeding')
               .setDescription('Log a feeding (#emilio-care)')
               .addNumberOption((opt) =>
-                opt.setName('amount').setDescription('Ounces, e.g. 2.5')
-                  .setMinValue(0.1).setMaxValue(20).setRequired(true),
+                opt
+                  .setName('amount')
+                  .setDescription('Ounces, e.g. 2.5')
+                  .setMinValue(0.1)
+                  .setMaxValue(20)
+                  .setRequired(true),
               )
               .addStringOption((opt) =>
-                opt.setName('time').setDescription('Optional: 5m, 2:30pm, 14:30. Defaults to now.')
-                  .setRequired(false),
+                opt.setName('time').setDescription('Optional: 5m, 2:30pm, 14:30. Defaults to now.').setRequired(false),
               )
               .addStringOption((opt) =>
-                opt.setName('source').setDescription('Source (default Formula)')
+                opt
+                  .setName('source')
+                  .setDescription('Source (default Formula)')
                   .setRequired(false)
-                  .addChoices(
-                    { name: 'Formula', value: 'Formula' },
-                    { name: 'Breast', value: 'Breast' },
-                  ),
+                  .addChoices({ name: 'Formula', value: 'Formula' }, { name: 'Breast', value: 'Breast' }),
               )
               .toJSON(),
             new SlashCommandBuilder()
               .setName('update-feeding')
               .setDescription('Correct a recent feeding amount (#emilio-care)')
               .addNumberOption((opt) =>
-                opt.setName('amount').setDescription('Corrected oz')
-                  .setMinValue(0.1).setMaxValue(20).setRequired(true),
+                opt.setName('amount').setDescription('Corrected oz').setMinValue(0.1).setMaxValue(20).setRequired(true),
               )
               .addStringOption((opt) =>
-                opt.setName('row').setDescription('Which feeding (autocomplete shows last 5)')
-                  .setRequired(false).setAutocomplete(true),
+                opt
+                  .setName('row')
+                  .setDescription('Which feeding (autocomplete shows last 5)')
+                  .setRequired(false)
+                  .setAutocomplete(true),
               )
               .toJSON(),
             new SlashCommandBuilder()
               .setName('diaper')
               .setDescription('Log a diaper change (#emilio-care)')
               .addStringOption((opt) =>
-                opt.setName('type').setDescription('Diaper status')
+                opt
+                  .setName('type')
+                  .setDescription('Diaper status')
                   .setRequired(true)
                   .addChoices(
                     { name: 'wet', value: 'wet' },
@@ -508,8 +471,7 @@ export class DiscordChannel implements ChannelAdapter {
                   ),
               )
               .addStringOption((opt) =>
-                opt.setName('time').setDescription('Optional: 5m, 2:30pm, 14:30. Defaults to now.')
-                  .setRequired(false),
+                opt.setName('time').setDescription('Optional: 5m, 2:30pm, 14:30. Defaults to now.').setRequired(false),
               )
               .toJSON(),
           ];
@@ -526,9 +488,7 @@ export class DiscordChannel implements ChannelAdapter {
     });
   }
 
-  private async handleHealthCommand(
-    interaction: import('discord.js').ChatInputCommandInteraction,
-  ): Promise<void> {
+  private async handleHealthCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
     try {
       await interaction.reply({ content: '🩺 Running health check...', ephemeral: true });
     } catch (err) {
@@ -561,9 +521,7 @@ export class DiscordChannel implements ChannelAdapter {
     });
   }
 
-  private async handleWordleCommand(
-    interaction: import('discord.js').ChatInputCommandInteraction,
-  ): Promise<void> {
+  private async handleWordleCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
     try {
       await interaction.deferReply({ ephemeral: true });
     } catch (err) {
@@ -611,9 +569,14 @@ export class DiscordChannel implements ChannelAdapter {
     }
 
     let result: {
-      ok?: boolean; status?: string; message?: string;
+      ok?: boolean;
+      status?: string;
+      message?: string;
       history?: Array<{ guess: string; grid: string }>;
-      solved?: boolean; guess_num?: number; budget?: number; word?: string;
+      solved?: boolean;
+      guess_num?: number;
+      budget?: number;
+      word?: string;
       submission_audit_error?: string;
     };
     try {
@@ -626,21 +589,28 @@ export class DiscordChannel implements ChannelAdapter {
 
     if (result.submission_audit_error) {
       log.warn('Wordle submissions audit append failed', {
-        err: result.submission_audit_error, player, guess,
+        err: result.submission_audit_error,
+        player,
+        guess,
       });
     }
 
-    await interaction.editReply(formatWordleReply({
-      status: result.status || 'error',
-      message: result.message,
-      history: result.history,
-      solved: result.solved,
-      guess_num: result.guess_num,
-      budget: result.budget,
-      word: result.word,
-    }));
+    await interaction.editReply(
+      formatWordleReply({
+        status: result.status || 'error',
+        message: result.message,
+        history: result.history,
+        solved: result.solved,
+        guess_num: result.guess_num,
+        budget: result.budget,
+        word: result.word,
+      }),
+    );
     log.info('Wordle slash command scored', {
-      player, guess: guess.toUpperCase(), status: result.status, solved: result.solved,
+      player,
+      guess: guess.toUpperCase(),
+      status: result.status,
+      solved: result.solved,
     });
   }
 
@@ -674,7 +644,8 @@ export class DiscordChannel implements ChannelAdapter {
     let stdout: string;
     try {
       const res = await execFileAsync('node', [scriptPath, player], {
-        timeout: 20_000, maxBuffer: 1_000_000,
+        timeout: 20_000,
+        maxBuffer: 1_000_000,
       });
       stdout = res.stdout;
     } catch (err) {
@@ -685,9 +656,13 @@ export class DiscordChannel implements ChannelAdapter {
     }
 
     let result: {
-      ok?: boolean; status?: string; message?: string;
+      ok?: boolean;
+      status?: string;
+      message?: string;
       history?: Array<{ guess: string; grid: string }>;
-      budget?: number; solved?: boolean; word?: string;
+      budget?: number;
+      solved?: boolean;
+      word?: string;
     };
     try {
       result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
@@ -697,16 +672,21 @@ export class DiscordChannel implements ChannelAdapter {
       return;
     }
 
-    await interaction.editReply(formatWordleStatusReply({
-      status: result.status || 'error',
-      message: result.message,
-      history: result.history,
-      budget: result.budget,
-      solved: result.solved,
-      word: result.word,
-    }));
+    await interaction.editReply(
+      formatWordleStatusReply({
+        status: result.status || 'error',
+        message: result.message,
+        history: result.history,
+        budget: result.budget,
+        solved: result.solved,
+        word: result.word,
+      }),
+    );
     log.info('Wordle status slash command ran', {
-      player, status: result.status, guesses: result.history?.length, solved: result.solved,
+      player,
+      status: result.status,
+      guesses: result.history?.length,
+      solved: result.solved,
     });
   }
 
@@ -741,9 +721,7 @@ export class DiscordChannel implements ChannelAdapter {
     return { content, components: [row] };
   }
 
-  private async handleSagaCommand(
-    interaction: import('discord.js').ChatInputCommandInteraction,
-  ): Promise<void> {
+  private async handleSagaCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
     try {
       await interaction.deferReply({ ephemeral: true });
     } catch (err) {
@@ -819,23 +797,19 @@ export class DiscordChannel implements ChannelAdapter {
 
   private async runEmilioCard(dateStr: string): Promise<string> {
     const scriptPath = path.resolve(process.cwd(), 'groups', 'discord_emilio-care', 'build_status_card.mjs');
-    const { stdout } = await execFileAsync(
-      'node',
-      [scriptPath, '--date', dateStr],
-      {
-        timeout: 20_000,
-        maxBuffer: 1_000_000,
-        env: {
-          ...process.env,
-          GOOGLE_OAUTH_CREDENTIALS:
-            process.env.GOOGLE_OAUTH_CREDENTIALS ||
-            path.resolve(process.cwd(), 'data', 'google-calendar', 'gcp-oauth.keys.json'),
-          GOOGLE_CALENDAR_MCP_TOKEN_PATH:
-            process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
-            path.resolve(os.homedir(), '.config', 'google-calendar-mcp', 'tokens.json'),
-        },
+    const { stdout } = await execFileAsync('node', [scriptPath, '--date', dateStr], {
+      timeout: 20_000,
+      maxBuffer: 1_000_000,
+      env: {
+        ...process.env,
+        GOOGLE_OAUTH_CREDENTIALS:
+          process.env.GOOGLE_OAUTH_CREDENTIALS ||
+          path.resolve(process.cwd(), 'data', 'google-calendar', 'gcp-oauth.keys.json'),
+        GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+          process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
+          path.resolve(os.homedir(), '.config', 'google-calendar-mcp', 'tokens.json'),
       },
-    );
+    });
     return stdout.split(/═══ AGENT REF/)[0].trim();
   }
 
@@ -877,9 +851,7 @@ export class DiscordChannel implements ChannelAdapter {
 
   // --- /emilio-week ---
 
-  private async handleEmilioWeekCommand(
-    interaction: import('discord.js').ChatInputCommandInteraction,
-  ): Promise<void> {
+  private async handleEmilioWeekCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
     try {
       await interaction.deferReply({ ephemeral: true });
     } catch (err) {
@@ -936,10 +908,7 @@ export class DiscordChannel implements ChannelAdapter {
 
   // --- /qotd ---
 
-  private qotdPending = new Map<
-    string,
-    { userId: string; player: string; answer: string; expiresAt: number }
-  >();
+  private qotdPending = new Map<string, { userId: string; player: string; answer: string; expiresAt: number }>();
 
   private static readonly QOTD_ALLOWED_USER_IDS = new Set([
     '181867944404320256', // Paden
@@ -978,9 +947,7 @@ export class DiscordChannel implements ChannelAdapter {
     },
   ];
 
-  private async handleQotdCommand(
-    interaction: import('discord.js').ChatInputCommandInteraction,
-  ): Promise<void> {
+  private async handleQotdCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
     try {
       await interaction.deferReply({ ephemeral: true });
     } catch (err) {
@@ -989,7 +956,7 @@ export class DiscordChannel implements ChannelAdapter {
     }
 
     if (!DiscordChannel.QOTD_ALLOWED_USER_IDS.has(interaction.user.id)) {
-      await interaction.editReply("⚠️ `/qotd` is just for Paden and Brenda — panda game is theirs.");
+      await interaction.editReply('⚠️ `/qotd` is just for Paden and Brenda — panda game is theirs.');
       return;
     }
 
@@ -1027,9 +994,7 @@ export class DiscordChannel implements ChannelAdapter {
     }
 
     if (result.status === 'caught_up') {
-      await interaction.editReply(
-        result.message || "You're all caught up — no open panda Qs for you right now.",
-      );
+      await interaction.editReply(result.message || "You're all caught up — no open panda Qs for you right now.");
       return;
     }
 
@@ -1110,9 +1075,7 @@ export class DiscordChannel implements ChannelAdapter {
     });
   }
 
-  private async handleQotdStatusCommand(
-    interaction: import('discord.js').ChatInputCommandInteraction,
-  ): Promise<void> {
+  private async handleQotdStatusCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
     try {
       await interaction.deferReply({ ephemeral: true });
     } catch (err) {
@@ -1139,7 +1102,8 @@ export class DiscordChannel implements ChannelAdapter {
     let stdout: string;
     try {
       const res = await execFileAsync('node', [scriptPath, interaction.user.id], {
-        timeout: 20_000, maxBuffer: 1_000_000,
+        timeout: 20_000,
+        maxBuffer: 1_000_000,
       });
       stdout = res.stdout;
     } catch (err) {
@@ -1150,8 +1114,12 @@ export class DiscordChannel implements ChannelAdapter {
     }
 
     let result: {
-      ok?: boolean; status?: string; message?: string;
-      currentQNum?: number; currentDay?: number; today?: string;
+      ok?: boolean;
+      status?: string;
+      message?: string;
+      currentQNum?: number;
+      currentDay?: number;
+      today?: string;
       open?: Array<{ qNum: number; day: number; date: string; question: string }>;
       skippedOpen?: Array<{ qNum: number; day: number; date: string; question: string }>;
       totalAnswered?: number;
@@ -1164,16 +1132,18 @@ export class DiscordChannel implements ChannelAdapter {
       return;
     }
 
-    await interaction.editReply(formatQotdStatusReply({
-      status: result.status || 'error',
-      message: result.message,
-      currentQNum: result.currentQNum,
-      currentDay: result.currentDay,
-      today: result.today,
-      open: result.open,
-      skippedOpen: result.skippedOpen,
-      totalAnswered: result.totalAnswered,
-    }));
+    await interaction.editReply(
+      formatQotdStatusReply({
+        status: result.status || 'error',
+        message: result.message,
+        currentQNum: result.currentQNum,
+        currentDay: result.currentDay,
+        today: result.today,
+        open: result.open,
+        skippedOpen: result.skippedOpen,
+        totalAnswered: result.totalAnswered,
+      }),
+    );
     log.info('Qotd status slash command ran', {
       userId: interaction.user.id,
       status: result.status,
@@ -1241,13 +1211,13 @@ export class DiscordChannel implements ChannelAdapter {
       await interaction.editReply(fitDiscordReply(card));
     }
     log.info('State-card slash command ran', {
-      command: cfg.name, folder: cfg.folder, cardLength: card.length,
+      command: cfg.name,
+      folder: cfg.folder,
+      cardLength: card.length,
     });
   }
 
-  private async handleCalendarCommand(
-    interaction: import('discord.js').ChatInputCommandInteraction,
-  ): Promise<void> {
+  private async handleCalendarCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
     try {
       await interaction.deferReply({ ephemeral: true });
     } catch (err) {
@@ -1269,7 +1239,8 @@ export class DiscordChannel implements ChannelAdapter {
     let stdout: string;
     try {
       const res = await execFileAsync('node', [scriptPath], {
-        timeout: 20_000, maxBuffer: 2_000_000,
+        timeout: 20_000,
+        maxBuffer: 2_000_000,
       });
       stdout = res.stdout;
     } catch (err) {
@@ -1290,19 +1261,23 @@ export class DiscordChannel implements ChannelAdapter {
   private async handleChoreAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
     const channelFolder = DiscordChannel.CHANNEL_FOLDERS[interaction.channelId];
     if (!channelFolder || channelFolder !== 'discord_silverthorne') {
-      try { await interaction.respond([]); } catch { /* ignore */ }
+      try {
+        await interaction.respond([]);
+      } catch {
+        /* ignore */
+      }
       return;
     }
     const focused = interaction.options.getFocused();
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'chore-slash.mjs');
     try {
-      const res = await execFileAsync(
-        'node',
-        [scriptPath, 'autocomplete', interaction.user.id, focused],
-        { timeout: 2500, maxBuffer: 1_000_000 },
-      );
+      const res = await execFileAsync('node', [scriptPath, 'autocomplete', interaction.user.id, focused], {
+        timeout: 2500,
+        maxBuffer: 1_000_000,
+      });
       const parsed = JSON.parse(res.stdout.trim().split('\n').pop() || '{}') as {
-        ok?: boolean; options?: Array<{ value: string; label: string }>;
+        ok?: boolean;
+        options?: Array<{ value: string; label: string }>;
       };
       const choices = (parsed.options || []).slice(0, 25).map((o) => ({
         name: o.label.slice(0, 100),
@@ -1311,15 +1286,18 @@ export class DiscordChannel implements ChannelAdapter {
       await interaction.respond(choices);
     } catch (err) {
       log.warn('chore autocomplete failed; returning empty choices', {
-        err: (err as Error).message, userId: interaction.user.id,
+        err: (err as Error).message,
+        userId: interaction.user.id,
       });
-      try { await interaction.respond([]); } catch { /* ignore */ }
+      try {
+        await interaction.respond([]);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
-  private async handleChoreCommand(
-    interaction: import('discord.js').ChatInputCommandInteraction,
-  ): Promise<void> {
+  private async handleChoreCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
     try {
       await interaction.deferReply({ ephemeral: true });
     } catch (err) {
@@ -1341,11 +1319,10 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'chore-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync(
-        'node',
-        [scriptPath, 'submit', interaction.user.id, value],
-        { timeout: 25_000, maxBuffer: 2_000_000 },
-      );
+      const res = await execFileAsync('node', [scriptPath, 'submit', interaction.user.id, value], {
+        timeout: 25_000,
+        maxBuffer: 2_000_000,
+      });
       stdout = res.stdout;
     } catch (err) {
       const e = err as { message?: string };
@@ -1355,8 +1332,12 @@ export class DiscordChannel implements ChannelAdapter {
     }
 
     let result: {
-      ok?: boolean; error?: string; petName?: string; fact?: string;
-      voice?: string; totalXp?: number;
+      ok?: boolean;
+      error?: string;
+      petName?: string;
+      fact?: string;
+      voice?: string;
+      totalXp?: number;
       chores?: Array<{ chore_id: string; name?: string; xp?: number; skipped?: string; error?: string }>;
     };
     try {
@@ -1392,20 +1373,22 @@ export class DiscordChannel implements ChannelAdapter {
           await this.sendWebhookMessage(interaction.channelId, text, persona.name, persona.avatar);
         } catch (err) {
           log.warn('Failed to send pet webhook for /chore', {
-            err: (err as Error).message, petName: result.petName,
+            err: (err as Error).message,
+            petName: result.petName,
           });
         }
       }
     }
 
     log.info('/chore slash command ran', {
-      userId: interaction.user.id, value, doneCount: doneChores.length, totalXp: result.totalXp,
+      userId: interaction.user.id,
+      value,
+      doneCount: doneChores.length,
+      totalXp: result.totalXp,
     });
   }
 
-  private async handleEmilioSlashCommand(
-    interaction: import('discord.js').ChatInputCommandInteraction,
-  ): Promise<void> {
+  private async handleEmilioSlashCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
     try {
       await interaction.deferReply({ ephemeral: true });
     } catch (err) {
@@ -1433,11 +1416,10 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync(
-        'node',
-        [scriptPath, interaction.commandName, userId, ...args],
-        { timeout: 30_000, maxBuffer: 1_000_000 },
-      );
+      const res = await execFileAsync('node', [scriptPath, interaction.commandName, userId, ...args], {
+        timeout: 30_000,
+        maxBuffer: 1_000_000,
+      });
       stdout = res.stdout;
     } catch (err) {
       const e = err as { message?: string };
@@ -1467,18 +1449,22 @@ export class DiscordChannel implements ChannelAdapter {
   private async handleEmilioUpdateFeedingAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
     const focused = interaction.options.getFocused(true);
     if (focused.name !== 'row') {
-      try { await interaction.respond([]); } catch { /* ignore */ }
+      try {
+        await interaction.respond([]);
+      } catch {
+        /* ignore */
+      }
       return;
     }
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-slash.mjs');
     try {
-      const res = await execFileAsync(
-        'node',
-        [scriptPath, 'autocomplete-feeding-row', interaction.user.id],
-        { timeout: 5_000, maxBuffer: 200_000 },
-      );
+      const res = await execFileAsync('node', [scriptPath, 'autocomplete-feeding-row', interaction.user.id], {
+        timeout: 5_000,
+        maxBuffer: 200_000,
+      });
       const parsed = JSON.parse(res.stdout.trim().split('\n').pop() || '{}') as {
-        ok?: boolean; options?: Array<{ value: string; label: string }>;
+        ok?: boolean;
+        options?: Array<{ value: string; label: string }>;
       };
       const choices = (parsed.options || []).slice(0, 25).map((o) => ({
         name: o.label.slice(0, 100),
@@ -1487,9 +1473,14 @@ export class DiscordChannel implements ChannelAdapter {
       await interaction.respond(choices);
     } catch (err) {
       log.warn('update-feeding autocomplete failed; returning empty choices', {
-        err: (err as Error).message, userId: interaction.user.id,
+        err: (err as Error).message,
+        userId: interaction.user.id,
       });
-      try { await interaction.respond([]); } catch { /* ignore */ }
+      try {
+        await interaction.respond([]);
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -1501,14 +1492,19 @@ export class DiscordChannel implements ChannelAdapter {
   }
 
   private async runQotdScript(args: string[]): Promise<{
-    ok?: boolean; status?: string; message?: string; qNum?: number; question?: string;
+    ok?: boolean;
+    status?: string;
+    message?: string;
+    qNum?: number;
+    question?: string;
     candidates?: Array<{ qNum: number; question: string }>;
   } | null> {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'qotd-slash.mjs');
     let stdout: string;
     try {
       const res = await execFileAsync('node', [scriptPath, ...args], {
-        timeout: 20_000, maxBuffer: 1_000_000,
+        timeout: 20_000,
+        maxBuffer: 1_000_000,
       });
       stdout = res.stdout;
     } catch (err) {
@@ -1526,11 +1522,7 @@ export class DiscordChannel implements ChannelAdapter {
 
   // --- v2 ChannelAdapter delivery methods ---
 
-  async deliver(
-    platformId: string,
-    _threadId: string | null,
-    message: OutboundMessage,
-  ): Promise<string | undefined> {
+  async deliver(platformId: string, _threadId: string | null, message: OutboundMessage): Promise<string | undefined> {
     const content = message.content as Record<string, unknown> | null;
     let text: string;
     if (typeof content === 'string') {
