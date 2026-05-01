@@ -7,10 +7,14 @@
 // The CLI builds default deps via defaultDeps() which dynamically imports the
 // real modules.
 
+import { execFile } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { promisify } from 'util';
 import { fileURLToPath } from 'url';
+
+const execFileAsync = promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(__filename), '..');
@@ -119,38 +123,22 @@ function findOpenNaps(rows) {
 // that combines the chime + a parenthetical data subtitle, then refresh the
 // pinned status card. Two IPC messages total.
 async function emitFollowups(deps, eventType, confirmText, opts = {}) {
-  const token = await deps.getToken();
-
-  // Chime + data subtitle, single message in Emilio's voice.
+  // Chime — returned in JSON for discord.ts to post via webhook
   const state = deps.loadChimeState();
   const { text: chimeText, newState } = deps.pickChime(eventType, state, opts);
-  const combined = confirmText
-    ? `${chimeText}\n-# ${confirmText}`
-    : chimeText;
-  await deps.writeIpcMessage(GROUP_FOLDER, {
-    type: 'message',
-    chatJid: CHAT_JID,
-    sender: 'Emilio',
-    text: combined,
-  });
+  const combined = confirmText ? `${chimeText}\n-# ${confirmText}` : chimeText;
   deps.saveChimeState(newState);
 
-  // Status card refresh (silent edit on the pinned label).
+  // Status card — run as subprocess, strip AGENT REF section
   let cardText;
   try {
-    const card = await deps.buildStatusCard({ token });
-    cardText = typeof card === 'string' ? card : (card.discord ?? card.full ?? '');
+    const cardStdout = await deps.runCardScript();
+    cardText = cardStdout.split(/═══ AGENT REF/)[0].trim();
   } catch (err) {
     process.stderr.write(`status_card rebuild failed: ${err.message}\n`);
   }
-  if (cardText) {
-    await deps.writeIpcMessage(GROUP_FOLDER, {
-      type: 'edit_message',
-      chatJid: CHAT_JID,
-      label: 'status_card',
-      text: cardText,
-    });
-  }
+
+  return { chime: combined, card: cardText || null };
 }
 
 // --- Action handlers (exported for tests) ---
@@ -172,10 +160,10 @@ export async function runAsleep({ userId, time }, deps) {
   const result = await deps.openSleep(parsed.iso);
   if (!result.ok) return { ok: false, error: result.error || 'open_sleep failed' };
   const owner = ownerFor(userId);
-  await emitFollowups(deps, 'asleep', `${owner} · ${parsed.displayLocal}`, {
+  const followups = await emitFollowups(deps, 'asleep', `${owner} · ${parsed.displayLocal}`, {
     parentRole: parentRoleFor(userId),
   });
-  return { ok: true, reply: `Nap opened at ${parsed.displayLocal}.` };
+  return { ok: true, ...followups, reply: `Nap opened at ${parsed.displayLocal}.` };
 }
 
 export async function runAwake({ userId, time }, deps) {
@@ -193,16 +181,13 @@ export async function runAwake({ userId, time }, deps) {
   const result = await deps.closeSleep(parsed.iso);
   if (!result.ok) return { ok: false, error: result.error || 'close_sleep failed' };
   const owner = ownerFor(userId);
-  await emitFollowups(
+  const followups = await emitFollowups(
     deps,
     'awake',
     `${owner} · ${parsed.displayLocal} · ${result.durationMin}m nap`,
     { parentRole: parentRoleFor(userId) },
   );
-  return {
-    ok: true,
-    reply: `Nap closed at ${parsed.displayLocal}, ${result.durationMin} min.`,
-  };
+  return { ok: true, ...followups, reply: `Nap closed at ${parsed.displayLocal}, ${result.durationMin} min.` };
 }
 
 export async function runFeeding({ userId, amount, time, source }, deps) {
@@ -240,9 +225,9 @@ export async function runFeeding({ userId, amount, time, source }, deps) {
   const owner = ownerFor(userId);
   const srcLabel = src === 'Formula' ? '' : ` ${src}`;
   const confirm = `${owner} · ${n} oz${srcLabel} · ${parsed.displayLocal}${napClosed ? ' · nap closed' : ''}`;
-  await emitFollowups(deps, 'feeding', confirm, { parentRole: parentRoleFor(userId) });
+  const followups = await emitFollowups(deps, 'feeding', confirm, { parentRole: parentRoleFor(userId) });
   const reply = `Logged ${n}oz ${src} at ${parsed.displayLocal}.${napClosed ? ' Closed open nap.' : ''}`;
-  return { ok: true, reply, napClosed };
+  return { ok: true, ...followups, reply, napClosed };
 }
 
 const DIAPER_TYPES = new Set(['wet', 'poopy', 'both']);
@@ -260,8 +245,8 @@ export async function runDiaper({ userId, type, time }, deps) {
 
   const owner = ownerFor(userId);
   const confirm = `${owner} · ${type} · ${parsed.displayLocal}`;
-  await emitFollowups(deps, 'diaper', confirm, { parentRole: parentRoleFor(userId) });
-  return { ok: true, reply: `Logged ${type} diaper at ${parsed.displayLocal}.` };
+  const followups = await emitFollowups(deps, 'diaper', confirm, { parentRole: parentRoleFor(userId) });
+  return { ok: true, ...followups, reply: `Logged ${type} diaper at ${parsed.displayLocal}.` };
 }
 
 export async function runUpdateFeeding({ userId, amount, row }, deps) {
@@ -446,8 +431,13 @@ export async function defaultDeps() {
       );
       if (!r.ok) throw new Error(`appendDiaper ${r.status}: ${await r.text()}`);
     },
-    buildStatusCard: cardMod.buildStatusCard,
-    writeIpcMessage: ipc.writeIpcMessage,
+    runCardScript: async () => {
+      const { stdout } = await execFileAsync(
+        'node', [path.join(ROOT, 'groups', GROUP_FOLDER, 'build_status_card.mjs')],
+        { timeout: 20_000, maxBuffer: 1_000_000, env: { ...process.env } },
+      );
+      return stdout;
+    },
     pickChime: (evt, state, opts) => pickChime(evt, pools, state, opts),
     loadChimeState: () => {
       try {

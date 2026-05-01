@@ -1428,7 +1428,7 @@ export class DiscordChannel implements ChannelAdapter {
       return;
     }
 
-    let result: { ok?: boolean; reply?: string; error?: string };
+    let result: { ok?: boolean; reply?: string; error?: string; card?: string; chime?: string };
     try {
       result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
     } catch (err) {
@@ -1439,6 +1439,53 @@ export class DiscordChannel implements ChannelAdapter {
 
     if (result.ok) {
       await interaction.editReply(result.reply || 'Done.');
+      const emilioCareJid = '1490781468182577172';
+      // Post Emilio chime via webhook persona
+      if (result.chime && WEBHOOK_PERSONAS['Emilio']) {
+        await this.sendWebhookMessage(emilioCareJid, result.chime, WEBHOOK_PERSONAS['Emilio'].name, WEBHOOK_PERSONAS['Emilio'].avatar);
+      }
+      // Update pinned status card — edit existing pin, don't post a new message
+      if (result.card) {
+        const cardText = result.card.split(/═══ AGENT REF/)[0].trim();
+        const labelsPath = path.resolve(process.cwd(), 'data', 'sessions', 'discord_emilio-care', 'message_labels.json');
+        let pinnedId: string | null = null;
+        try {
+          const labels = JSON.parse(fs.readFileSync(labelsPath, 'utf8'));
+          pinnedId = labels?.status_card?.id ?? null;
+        } catch { /* first run — no label yet */ }
+
+        if (pinnedId) {
+          try {
+            const channelId = emilioCareJid.replace(/^dc:/, '');
+            const ch = await this.client?.channels.fetch(channelId);
+            if (ch && 'messages' in ch) {
+              const msg = await (ch as import('discord.js').TextChannel).messages.fetch(pinnedId);
+              await msg.edit(cardText);
+            }
+          } catch (err) {
+            log.warn('Failed to edit pinned status card', { err });
+          }
+        } else {
+          // No existing pin — post and pin it, save the label
+          const msgId = await this.sendMessageWithId(emilioCareJid, cardText);
+          if (msgId) {
+            try {
+              const channelId = emilioCareJid.replace(/^dc:/, '');
+              const ch = await this.client?.channels.fetch(channelId);
+              if (ch && 'messages' in ch) {
+                const msg = await (ch as import('discord.js').TextChannel).messages.fetch(msgId);
+                await msg.pin();
+              }
+            } catch { /* best effort */ }
+            try {
+              const labels = fs.existsSync(labelsPath) ? JSON.parse(fs.readFileSync(labelsPath, 'utf8')) : {};
+              labels.status_card = { id: msgId, date: new Date().toISOString().slice(0, 10) };
+              fs.mkdirSync(path.dirname(labelsPath), { recursive: true });
+              fs.writeFileSync(labelsPath, JSON.stringify(labels, null, 2));
+            } catch { /* best effort */ }
+          }
+        }
+      }
     } else {
       await interaction.editReply(`⚠️ ${result.error || 'Unknown error'}`);
     }

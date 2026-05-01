@@ -42,3 +42,4 @@ groups/*
 .nanoclaw/
 
 agents-sdk-docs
+.upgrade-worktree
