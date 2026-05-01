@@ -171,11 +171,8 @@ export function migrateGroupsToClaudeLocal(): void {
     }
   }
 
-  const globalDir = path.join(GROUPS_DIR, 'global');
-  if (fs.existsSync(globalDir)) {
-    fs.rmSync(globalDir, { recursive: true, force: true });
-    actions.push('groups/global/ removed');
-  }
+  // groups/global/ is preserved — it contains shared scripts used by host-side
+  // slash command handlers (sheets.mjs, wordle.mjs, etc.). Do not remove it.
 
   if (actions.length > 0) {
     log.info('Migrated groups to CLAUDE.local.md model', { actions });

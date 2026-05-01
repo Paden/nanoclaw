@@ -6,7 +6,11 @@ import { getContainerImageBase, getDefaultContainerImage, getInstallSlug } from 
 import { isValidTimezone } from './timezone.js';
 
 // Read config values from .env (falls back to process.env).
-const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER', 'ONECLI_URL', 'ONECLI_API_KEY', 'TZ']);
+const envConfig = readEnvFile([
+  'ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER', 'ONECLI_URL', 'ONECLI_API_KEY', 'TZ',
+  'OLLAMA_API_KEY', 'OLLAMA_ADMIN_TOOLS', 'COMPACT_TOKEN_THRESHOLD', 'COMPACT_MODEL',
+  'DISCORD_REACTIONS_INBOUND',
+]);
 
 export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
 export const ASSISTANT_HAS_OWN_NUMBER =
@@ -66,3 +70,44 @@ function resolveConfigTimezone(): string {
   return 'UTC';
 }
 export const TIMEZONE = resolveConfigTimezone();
+
+// --- Portillo family customizations ---
+
+// Ollama / alternative model routing
+export const OLLAMA_ADMIN_TOOLS =
+  (process.env.OLLAMA_ADMIN_TOOLS || envConfig.OLLAMA_ADMIN_TOOLS) === 'true';
+export const OLLAMA_API_KEY =
+  process.env.OLLAMA_API_KEY || envConfig.OLLAMA_API_KEY || 'ollama';
+export const COMPACT_TOKEN_THRESHOLD = parseInt(
+  process.env.COMPACT_TOKEN_THRESHOLD || envConfig.COMPACT_TOKEN_THRESHOLD || '100000', 10);
+export const COMPACT_MODEL =
+  process.env.COMPACT_MODEL || envConfig.COMPACT_MODEL || 'gemma4:31b-cloud';
+
+// Discord reaction inbound mode: 'all' | 'own' | 'off' (default 'own')
+type ReactionsMode = 'all' | 'own' | 'off';
+function resolveReactionsMode(): ReactionsMode {
+  const v = (process.env.DISCORD_REACTIONS_INBOUND || envConfig.DISCORD_REACTIONS_INBOUND || 'own').toLowerCase();
+  if (v === 'all' || v === 'own' || v === 'off') return v as ReactionsMode;
+  return 'own';
+}
+export const DISCORD_REACTIONS_INBOUND: ReactionsMode = resolveReactionsMode();
+
+// Webhook personas for Discord pet voices and baby chimes
+export const WEBHOOK_PERSONAS: Record<string, { name: string; avatar?: string }> = {
+  Voss: {
+    name: 'Voss 🌋',
+    avatar: 'https://cdn.discordapp.com/attachments/1491554631413665872/1492346511525412955/image.png?ex=69daff7e&is=69d9adfe&hm=5f2469c5d3b10088478539899c65f1fb7c7feaff8dfb6493f44bc7d08262430b&',
+  },
+  Nyx: {
+    name: 'Nyx 🌙',
+    avatar: 'https://cdn.discordapp.com/attachments/1491554631413665872/1492348804010213426/image.png?ex=69db01a1&is=69d9b021&hm=2e4ed22ac6ebaa2f48588ffc2788bf6e550ab1cd3f2374d64ac306e3bdf310c5&',
+  },
+  Zima: {
+    name: 'Zima ❄️',
+    avatar: 'https://cdn.discordapp.com/attachments/1491554631413665872/1492348630244392990/image.png?ex=69db0177&is=69d9aff7&hm=c2f259ceb5b9e1095a5fea3b8bde3c19493627ee53f13f3030532801ec35f8b7&',
+  },
+  Emilio: {
+    name: 'Emilio 👶',
+    avatar: 'https://i.imgur.com/yVsvDuQ.jpeg',
+  },
+};

@@ -5,6 +5,7 @@
  */
 import { ChildProcess, execSync, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import { OneCLI } from '@onecli-sh/sdk';
@@ -15,6 +16,7 @@ import {
   CONTAINER_INSTALL_LABEL,
   DATA_DIR,
   GROUPS_DIR,
+  OLLAMA_API_KEY,
   ONECLI_API_KEY,
   ONECLI_URL,
   TIMEZONE,
@@ -331,6 +333,27 @@ function buildMounts(
     mounts.push(...providerContribution.mounts);
   }
 
+  // Google Calendar MCP credentials — needed for Sheets/Calendar access in all groups
+  const gcalCredsPath = path.join(DATA_DIR, 'google-calendar', 'gcp-oauth.keys.json');
+  const gcalTokenPath = path.join(
+    process.env.HOME || os.homedir(),
+    '.config', 'google-calendar-mcp', 'tokens.json',
+  );
+  if (fs.existsSync(gcalCredsPath)) {
+    mounts.push({
+      hostPath: gcalCredsPath,
+      containerPath: '/home/node/.config/google-calendar-mcp/gcp-oauth.keys.json',
+      readonly: true,
+    });
+  }
+  if (fs.existsSync(gcalTokenPath)) {
+    mounts.push({
+      hostPath: gcalTokenPath,
+      containerPath: '/home/node/.config/google-calendar-mcp/tokens.json',
+      readonly: true,
+    });
+  }
+
   return mounts;
 }
 
@@ -446,19 +469,32 @@ async function buildContainerArgs(
     }
   }
 
-  // OneCLI gateway — injects HTTPS_PROXY + certs so container API calls
-  // are routed through the agent vault for credential injection. Treated as
-  // a transient hard failure: if we can't wire the gateway, we don't spawn.
-  // The caller (router or host-sweep) catches the throw, leaves the inbound
-  // message pending, and the next sweep tick retries.
-  if (agentIdentifier) {
-    await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+  // Model routing: if ANTHROPIC_MODEL is not a Claude model, bypass OneCLI
+  // and point the SDK directly at Ollama's Anthropic-compatible API on port 11435.
+  const anthropicModel = process.env.ANTHROPIC_MODEL || '';
+  const isLocalModel = anthropicModel && !anthropicModel.startsWith('claude-');
+
+  if (isLocalModel) {
+    args.push('-e', `ANTHROPIC_MODEL=${anthropicModel}`);
+    args.push('-e', 'ANTHROPIC_BASE_URL=http://host.docker.internal:11435');
+    args.push('-e', `ANTHROPIC_API_KEY=${OLLAMA_API_KEY}`);
+    args.push('-e', 'CLAUDE_CODE_ATTRIBUTION_HEADER=0');
+    args.push('-e', 'DISABLE_TELEMETRY=1');
+    args.push('-e', 'DISABLE_ERROR_REPORTING=1');
+    args.push('-e', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1');
+    log.info('Routing to Ollama (local model)', { containerName, model: anthropicModel });
+  } else {
+    // OneCLI gateway — injects HTTPS_PROXY + certs so container API calls
+    // are routed through the agent vault for credential injection.
+    if (agentIdentifier) {
+      await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+    }
+    const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
+    if (!onecliApplied) {
+      throw new Error('OneCLI gateway not applied — refusing to spawn container without credentials');
+    }
+    log.info('OneCLI gateway applied', { containerName });
   }
-  const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
-  if (!onecliApplied) {
-    throw new Error('OneCLI gateway not applied — refusing to spawn container without credentials');
-  }
-  log.info('OneCLI gateway applied', { containerName });
 
   // Host gateway
   args.push(...hostGatewayArgs());
