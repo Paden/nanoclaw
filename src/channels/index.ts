@@ -7,3 +7,6 @@
 // self-registration import below.
 
 import './cli.js';
+
+// discord
+import './discord.js';
