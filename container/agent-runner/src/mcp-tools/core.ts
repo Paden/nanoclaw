@@ -103,8 +103,12 @@ export const sendMessage: McpToolDefinition = {
     inputSchema: {
       type: 'object' as const,
       properties: {
-        to: { type: 'string', description: 'Destination name (e.g., "family", "worker-1"). Optional if you have only one destination.' },
+        to: { type: 'string', description: 'Destination name. Optional if you have only one destination.' },
         text: { type: 'string', description: 'Message content' },
+        sender: { type: 'string', description: 'Webhook persona name (e.g. "Emilio", "Voss", "Nyx", "Zima"). Omit for Claudio.' },
+        label: { type: 'string', description: 'Label for upsert/pin tracking (e.g. "status_card", "wordle_card").' },
+        pin: { type: 'boolean', description: 'Pin this message.' },
+        upsert: { type: 'boolean', description: 'Edit existing labeled message instead of posting a new one.' },
       },
       required: ['text'],
     },
@@ -116,6 +120,12 @@ export const sendMessage: McpToolDefinition = {
     const routing = resolveRouting(args.to as string | undefined);
     if ('error' in routing) return err(routing.error);
 
+    const content: Record<string, unknown> = { text };
+    if (args.sender) content.sender = args.sender as string;
+    if (args.label) content.label = args.label as string;
+    if (args.pin) content.pin = true;
+    if (args.upsert) content.upsert = true;
+
     const id = generateId();
     const seq = writeMessageOut({
       id,
@@ -123,10 +133,10 @@ export const sendMessage: McpToolDefinition = {
       platform_id: routing.platform_id,
       channel_type: routing.channel_type,
       thread_id: routing.thread_id,
-      content: JSON.stringify({ text }),
+      content: JSON.stringify(content),
     });
 
-    log(`send_message: #${seq} → ${routing.resolvedName}`);
+    log(`send_message: #${seq} → ${routing.resolvedName}${args.sender ? ` (sender: ${args.sender})` : ''}${args.label ? ` [${args.label}]` : ''}`);
     return ok(`Message sent to ${routing.resolvedName} (id: ${seq})`);
   },
 };

@@ -11,6 +11,7 @@ import path from 'path';
 import { OneCLI } from '@onecli-sh/sdk';
 
 import {
+  ANTHROPIC_MODEL,
   CONTAINER_IMAGE,
   CONTAINER_IMAGE_BASE,
   CONTAINER_INSTALL_LABEL,
@@ -468,7 +469,7 @@ async function buildContainerArgs(
 
   // Model routing: if ANTHROPIC_MODEL is not a Claude model, bypass OneCLI
   // and point the SDK directly at Ollama's Anthropic-compatible API on port 11435.
-  const anthropicModel = process.env.ANTHROPIC_MODEL || '';
+  const anthropicModel = ANTHROPIC_MODEL;
   const isLocalModel = anthropicModel && !anthropicModel.startsWith('claude-');
 
   if (isLocalModel) {

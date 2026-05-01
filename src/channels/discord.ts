@@ -1442,17 +1442,30 @@ export class DiscordChannel implements ChannelAdapter {
       const emilioCareJid = '1490781468182577172';
       // Post Emilio chime via webhook persona
       if (result.chime && WEBHOOK_PERSONAS['Emilio']) {
-        await this.sendWebhookMessage(emilioCareJid, result.chime, WEBHOOK_PERSONAS['Emilio'].name, WEBHOOK_PERSONAS['Emilio'].avatar);
+        await this.sendWebhookMessage(
+          emilioCareJid,
+          result.chime,
+          WEBHOOK_PERSONAS['Emilio'].name,
+          WEBHOOK_PERSONAS['Emilio'].avatar,
+        );
       }
       // Update pinned status card — edit existing pin, don't post a new message
       if (result.card) {
         const cardText = result.card.split(/═══ AGENT REF/)[0].trim();
-        const labelsPath = path.resolve(process.cwd(), 'data', 'sessions', 'discord_emilio-care', 'message_labels.json');
+        const labelsPath = path.resolve(
+          process.cwd(),
+          'data',
+          'sessions',
+          'discord_emilio-care',
+          'message_labels.json',
+        );
         let pinnedId: string | null = null;
         try {
           const labels = JSON.parse(fs.readFileSync(labelsPath, 'utf8'));
           pinnedId = labels?.status_card?.id ?? null;
-        } catch { /* first run — no label yet */ }
+        } catch {
+          /* first run — no label yet */
+        }
 
         if (pinnedId) {
           try {
@@ -1476,13 +1489,17 @@ export class DiscordChannel implements ChannelAdapter {
                 const msg = await (ch as import('discord.js').TextChannel).messages.fetch(msgId);
                 await msg.pin();
               }
-            } catch { /* best effort */ }
+            } catch {
+              /* best effort */
+            }
             try {
               const labels = fs.existsSync(labelsPath) ? JSON.parse(fs.readFileSync(labelsPath, 'utf8')) : {};
               labels.status_card = { id: msgId, date: new Date().toISOString().slice(0, 10) };
               fs.mkdirSync(path.dirname(labelsPath), { recursive: true });
               fs.writeFileSync(labelsPath, JSON.stringify(labels, null, 2));
-            } catch { /* best effort */ }
+            } catch {
+              /* best effort */
+            }
           }
         }
       }
@@ -1580,10 +1597,57 @@ export class DiscordChannel implements ChannelAdapter {
       text = JSON.stringify(content);
     }
 
-    // Webhook persona routing (sender field matches a persona)
+    // Strip <internal>...</internal> blocks and [no-reply] sentinel
+    text = text.replace(/<internal>[\s\S]*?<\/internal>/g, '').replace(/\s*\[no-reply\]\s*$/i, '').trim();
+    if (!text) return undefined;
+
+    // Webhook persona routing
     if (content && typeof content.sender === 'string' && WEBHOOK_PERSONAS[content.sender]) {
       const persona = WEBHOOK_PERSONAS[content.sender];
       return this.sendWebhookMessage(platformId, text, persona.name, persona.avatar);
+    }
+
+    // Label/upsert: edit the existing pinned message if label is set
+    if (content && typeof content.label === 'string' && (content.upsert || content.pin)) {
+      const groupFolder = DiscordChannel.CHANNEL_FOLDERS[platformId];
+      if (groupFolder) {
+        const labelsPath = path.resolve(process.cwd(), 'data', 'sessions', groupFolder, 'message_labels.json');
+        let pinnedId: string | null = null;
+        try {
+          const labels = JSON.parse(fs.readFileSync(labelsPath, 'utf8'));
+          pinnedId = labels?.[content.label as string]?.id ?? null;
+        } catch { /* no label file yet */ }
+
+        if (pinnedId) {
+          try {
+            const ch = await this.client?.channels.fetch(platformId);
+            if (ch && 'messages' in ch) {
+              const msg = await (ch as TextChannel).messages.fetch(pinnedId);
+              await msg.edit(text);
+              return pinnedId;
+            }
+          } catch {
+            pinnedId = null; // fall through to post new
+          }
+        }
+
+        // No existing pin — post, optionally pin, save label
+        const msgId = await this.sendMessageWithId(platformId, text);
+        if (msgId && content.pin) {
+          try {
+            const ch = await this.client?.channels.fetch(platformId);
+            if (ch && 'messages' in ch) {
+              const msg = await (ch as TextChannel).messages.fetch(msgId);
+              await msg.pin();
+            }
+            const labels = (() => { try { return JSON.parse(fs.readFileSync(labelsPath, 'utf8')); } catch { return {}; } })();
+            labels[content.label as string] = { id: msgId, date: new Date().toISOString().slice(0, 10) };
+            fs.mkdirSync(path.dirname(labelsPath), { recursive: true });
+            fs.writeFileSync(labelsPath, JSON.stringify(labels, null, 2));
+          } catch { /* best effort */ }
+        }
+        return msgId;
+      }
     }
 
     return this.sendMessageWithId(platformId, text);

@@ -17,6 +17,7 @@ const envConfig = readEnvFile([
   'COMPACT_TOKEN_THRESHOLD',
   'COMPACT_MODEL',
   'DISCORD_REACTIONS_INBOUND',
+  'ANTHROPIC_MODEL',
 ]);
 
 export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
@@ -81,6 +82,7 @@ export const TIMEZONE = resolveConfigTimezone();
 // --- Portillo family customizations ---
 
 // Ollama / alternative model routing
+export const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || envConfig.ANTHROPIC_MODEL || '';
 export const OLLAMA_ADMIN_TOOLS = (process.env.OLLAMA_ADMIN_TOOLS || envConfig.OLLAMA_ADMIN_TOOLS) === 'true';
 export const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || envConfig.OLLAMA_API_KEY || 'ollama';
 export const COMPACT_TOKEN_THRESHOLD = parseInt(
