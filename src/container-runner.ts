@@ -72,24 +72,11 @@ interface VolumeMount {
   readonly: boolean;
 }
 
-// Pet lore is scoped to #silverthorne and #family-fun. Everywhere else (DMs
-// and other groups) gets a sanitized overlay of groups/global/ so the flash
-// model can't anchor on "Paden → Voss 🌋 volcanic" and start speaking in pet
-// voice. Two variants:
-//   DM overlay  — minimal: only workflow/style files 1:1 DMs need
-//   group overlay — broader: includes sheets/channel_map/etc for cross-channel
-//                  workflows, with pet-mention lines stripped on copy
-// Both regenerate every container spawn so host edits propagate.
-
-const DM_GLOBAL_ALLOWED_FILES = [
-  'CLAUDE.md',
-  'dms.md',
-  'date_time_convention.md',
-  'message_formatting.md',
-  'mcp_tools.md',
-  'communication.md',
-];
-const DM_GLOBAL_ALLOWED_DIRS = ['scripts', 'skills'];
+// Pet lore is scoped to #silverthorne and #family-fun. Every other group
+// gets a sanitized overlay of groups/global/ with pet-mention lines stripped
+// on copy, so the flash model can't anchor on "Paden → Voss 🌋 volcanic" and
+// start speaking in pet voice. The overlay regenerates every container spawn
+// so host edits propagate.
 
 // Files omitted entirely from the non-pet group overlay — pure pet lore.
 const GROUP_GLOBAL_OMITTED_FILES = new Set(['soul.md', 'claudio-journal.md']);
@@ -126,26 +113,6 @@ function writeScrubbedFile(src: string, dest: string): void {
 // mkdir could briefly see an empty directory. Per-group paths eliminate
 // both hazards: each group only ever touches its own overlay, and existing
 // containers keep their mounted inode until they exit.
-function buildDmGlobalOverlay(globalDir: string, groupFolder: string): string {
-  const overlayDir = path.join(DATA_DIR, 'dm-global-overlay', groupFolder);
-  fs.rmSync(overlayDir, { recursive: true, force: true });
-  fs.mkdirSync(overlayDir, { recursive: true });
-
-  for (const file of DM_GLOBAL_ALLOWED_FILES) {
-    const src = path.join(globalDir, file);
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, path.join(overlayDir, file));
-    }
-  }
-  for (const dir of DM_GLOBAL_ALLOWED_DIRS) {
-    const src = path.join(globalDir, dir);
-    if (fs.existsSync(src)) {
-      copyRecursive(src, path.join(overlayDir, dir));
-    }
-  }
-  return overlayDir;
-}
-
 function buildGroupGlobalOverlay(
   globalDir: string,
   groupFolder: string,
@@ -242,19 +209,13 @@ function buildVolumeMounts(
 
     // Global memory directory (read-only for non-main).
     // Pet channels (silverthorne, family-fun) get the full global dir — they
-    // need pet lore. DMs get a minimal overlay, other groups get a broader
-    // overlay with pet-mention lines scrubbed.
+    // need pet lore. Other groups get an overlay with pet-mention lines
+    // scrubbed so flash can't start speaking in pet voice.
     const globalDir = path.join(GROUPS_DIR, 'global');
-    const isDm = group.folder.startsWith('discord_dms_');
     const isPetChannel = PET_CHANNELS.has(group.folder);
-    let effectiveGlobalDir: string;
-    if (isPetChannel) {
-      effectiveGlobalDir = globalDir;
-    } else if (isDm) {
-      effectiveGlobalDir = buildDmGlobalOverlay(globalDir, group.folder);
-    } else {
-      effectiveGlobalDir = buildGroupGlobalOverlay(globalDir, group.folder);
-    }
+    const effectiveGlobalDir = isPetChannel
+      ? globalDir
+      : buildGroupGlobalOverlay(globalDir, group.folder);
     if (fs.existsSync(effectiveGlobalDir)) {
       mounts.push({
         hostPath: effectiveGlobalDir,

@@ -120,7 +120,7 @@ describe('notifyOvermindOfCompaction', () => {
     });
 
     await notifyOvermindOfCompaction({
-      sourceFolder: 'discord_dms_paden',
+      sourceFolder: 'discord_silverthorne',
       peakInputTokens: 150_000,
       summaryWords: 500,
       registeredGroups: makeRegisteredGroups({
@@ -131,7 +131,7 @@ describe('notifyOvermindOfCompaction', () => {
 
     expect(ch.sendMessage).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
-      { err, group: 'discord_dms_paden' },
+      { err, group: 'discord_silverthorne' },
       'Failed to send compaction notification',
     );
   });

@@ -68,10 +68,6 @@ export const MAX_MESSAGES_PER_PROMPT = Math.max(
 );
 export const IPC_POLL_INTERVAL = 1000;
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep container alive after last result
-export const DM_SESSION_TTL = parseInt(
-  process.env.DM_SESSION_TTL || String(12 * 60 * 60 * 1000),
-  10,
-); // 12h default — DM sessions older than this start fresh
 export const COMPACT_TOKEN_THRESHOLD = parseInt(
   process.env.COMPACT_TOKEN_THRESHOLD || '100000',
   10,

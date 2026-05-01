@@ -12,18 +12,15 @@ Tiers are based on lifetime XP from Silverthorne Pet Log:
 - Adept (1500-2999 XP): 5 guesses
 - Apex (3000+ XP): 4 guesses
 
-## DM submission flow
+## Submission flow
 
-1. Player DMs you a 5-letter word
-2. Validate: correct length, alpha only, within their guess budget
-3. Score using green/yellow/gray emoji grid (🟩🟨⬜)
-4. Reply in DM with their grid — **never** show grids in #family-fun
-5. Write guess row to `Wordle State` tab: [date, player, guess_number, guess, grid, solved]
-6. If solved or budget exhausted, mark player done in `wordle_state.json`
+Players submit via the **`/wordle <word>`** Discord slash command, invoked in #family-fun. The host scores the guess against `Wordle Today`, writes the row to `Wordle State`, and replies **ephemerally** — only the guesser sees the grid, no one else in the channel. You do not see the guess, you do not score, you do not write rows — that all happens outside your container.
+
+Your job is everything around the guess: the pinned status card, day resolution, saga narrative, pet voices.
 
 ## Wordlist
 
-`wordle_wordlist.txt` — one word per line. Pick from this list. Track used words in `wordle_used_words.json` to avoid repeats.
+`wordle_wordlist.txt` — one word per line. Pick from this list when setting the next day's word. Track used words in `wordle_used_words.json` to avoid repeats. (The slash-command scorer reads this same file to validate guesses.)
 
 ## Day resolution
 
@@ -41,4 +38,4 @@ Card shows: day number, date, genre, per-player status (guesses/budget), all-tim
 
 ## Reveal poller
 
-`wordle_poller_state.json` tracks whether you've checked for new guesses recently. When a player submits, update the pinned card to reflect their new guess count (without revealing details).
+`wordle_poller_state.json` tracks whether you've checked for new guesses recently. Poll `Wordle State` on a cadence; when a player's guess count changes, update the pinned card to reflect it (without revealing letters or grids).

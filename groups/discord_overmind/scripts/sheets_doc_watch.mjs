@@ -5,7 +5,7 @@ const root = process.env.WORKSPACE_PROJECT;
 const groupsDir = join(root, 'groups');
 const cutoff = Date.now() - 24 * 60 * 60 * 1000;
 const targets = [
-  '/workspace/global/sheets.md',
+  '/workspace/group/sheets.md',
   '/workspace/global/date_time_convention.md',
 ];
 

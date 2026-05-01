@@ -11,11 +11,13 @@ A private 1:1 game for the two of us — building closeness through questions. T
 2. **Daily Pulse rotation** (after day 36, repeats weekly):
    - Mon **Memory** · Tue **Truth** · Wed **Want** · Thu **Thanks** · Fri **Date Roulette** · Sat **Shared dream** · Sun **Spark** (PG-13)
 
-## Answers are DM-only — never in #panda
+## Answers go through `/qotd` — invoked right here in #panda
 
-Both of us DM our answers privately to Claudio. The DMs land in `discord_dms`, which writes them to the **"Portillo Games"** Google Sheet, `Panda Submissions` tab. Read submissions from the sheet, not from this channel. Sheet ID: `1ugYotsqO8UQBydtttEJ4NvnRTN1IbA0-3No7TncSeLY` (also in `/workspace/group/portillo_games_sheet_id.txt`).
+Both of us submit answers via the **`/qotd <answer>`** Discord slash command, used in #panda. The command runs host-side, replies **ephemerally** (only the submitter sees the confirmation — the other partner doesn't see whose answer just landed), and appends to the **"Portillo Games"** Google Sheet, `Panda Submissions` tab. Read submissions from the sheet, not from this channel. Sheet ID: `1ugYotsqO8UQBydtttEJ4NvnRTN1IbA0-3No7TncSeLY` (also in `/workspace/group/portillo_games_sheet_id.txt`).
 
-If either of us posts an answer directly in #panda, gently redirect: *"DM me your answer so it stays a surprise 💌"* and don't count it.
+If multiple questions are open for a player, `/qotd` pops an ephemeral picker so they choose which one to answer. If one is open, it auto-targets; if zero, it tells them they're caught up.
+
+If either of us posts an answer as plain channel text (not via the slash command), gently redirect: *"Run `/qotd <answer>` instead so it stays a surprise 💌"* and don't count it.
 
 ## State files (`/workspace/group/`)
 

@@ -16,6 +16,10 @@
 //   - "done"        → player already finished today
 //   - "no_puzzle"   → Wordle Today not yet published
 //   - "error"       → unexpected error (message has detail)
+//
+// Also exports getStatusForPlayer() — a read-only sibling that does the same
+// Wordle Today + Wordle State reads but skips validation and the append, used
+// by the /wordle-status slash command.
 
 import fs from 'fs';
 // Relative import works on host (vitest) and in container alike.
@@ -155,6 +159,71 @@ export async function scoreGuessForPlayer(player, rawGuess, deps = {}) {
     history,
     // Word only revealed when player exhausts budget unsolved
     word: !solved && guessNum >= budget ? word.toUpperCase() : undefined,
+  };
+}
+
+export async function getStatusForPlayer(player, deps = {}) {
+  const {
+    readRangeFn = readRange,
+    token: providedToken,
+    today = todayCT(),
+  } = deps;
+
+  let t;
+  try {
+    t = providedToken ?? (await getAccessToken());
+  } catch (err) {
+    return { ok: false, status: 'error', message: err.message };
+  }
+
+  // 1. Today's puzzle row (word + per-player budgets)
+  let todayRows;
+  try {
+    todayRows = await readRangeFn(PORTILLO_GAMES_SHEET, 'Wordle Today!A2:C100', { token: t });
+  } catch (err) {
+    if (/Unable to parse range|404/.test(err.message)) {
+      return { ok: false, status: 'no_puzzle', message: "Today's puzzle isn't set up yet." };
+    }
+    return { ok: false, status: 'error', message: err.message };
+  }
+  const row = (todayRows || []).find((r) => r[0] === today);
+  if (!row) {
+    return { ok: false, status: 'no_puzzle', message: "Today's puzzle isn't published yet." };
+  }
+  const word = (row[1] || '').toLowerCase();
+  let budgets = {};
+  try {
+    budgets = JSON.parse(row[2] || '{}');
+  } catch {
+    /* ignore */
+  }
+  const budget = budgets[player] || 6;
+
+  // 2. Player's guesses today
+  let stateRows;
+  try {
+    stateRows = await readRangeFn(PORTILLO_GAMES_SHEET, 'Wordle State!A2:F10000', { token: t });
+  } catch (err) {
+    return { ok: false, status: 'error', message: err.message };
+  }
+  const mine = (stateRows || []).filter(
+    (r) => r[0] === today && String(r[1]).toLowerCase() === player.toLowerCase(),
+  );
+  const history = mine.map((r) => ({ guess: r[3], grid: r[4] }));
+  const solved = mine.some((r) => String(r[5]).toLowerCase() === 'true');
+  const usedCount = history.length;
+  const busted = !solved && usedCount >= budget;
+
+  return {
+    ok: true,
+    status: 'status',
+    history,
+    budget,
+    guesses: usedCount,
+    solved,
+    // Reveal word only when the player can no longer guess — mirrors
+    // scoreGuessForPlayer's end-of-budget reveal rule.
+    word: busted ? word.toUpperCase() : undefined,
   };
 }
 

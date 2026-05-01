@@ -123,13 +123,15 @@ vi.mock('discord.js', () => {
     _mockChannel = {
       send: vi.fn().mockResolvedValue(undefined),
       sendTyping: vi.fn().mockResolvedValue(undefined),
-      fetchWebhooks: vi.fn().mockResolvedValue({
-        find: vi.fn((fn: any) => {
-          // Simulate Collection.find() — test the predicate against our mock
-          return fn(clientRef.current!.mockWebhook)
-            ? clientRef.current!.mockWebhook
-            : undefined;
-        }),
+      fetchWebhooks: vi.fn().mockImplementation(() => {
+        const webhooks = [clientRef.current!.mockWebhook];
+        const makeCollection = (arr: any[]) => ({
+          size: arr.length,
+          find: vi.fn((fn: any) => arr.find((w) => fn(w))),
+          filter: vi.fn((fn: any) => makeCollection(arr.filter((w) => fn(w)))),
+          map: vi.fn((fn: any) => arr.map((w) => fn(w))),
+        });
+        return Promise.resolve(makeCollection(webhooks));
       }),
       createWebhook: vi.fn().mockResolvedValue(null), // only called if find returns undefined
     };
@@ -440,36 +442,6 @@ describe('DiscordChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'dc:1234567890123456',
         expect.objectContaining({ sender_name: 'Alice Global' }),
-      );
-    });
-
-    it('uses sender name for DM chats (no guild)', async () => {
-      const opts = createTestOpts({
-        registeredGroups: vi.fn(() => ({
-          'dc:1234567890123456': {
-            name: 'DM',
-            folder: 'dm',
-            trigger: '@Andy',
-            added_at: '2024-01-01T00:00:00.000Z',
-          },
-        })),
-      });
-      const channel = new DiscordChannel('test-token', opts);
-      await channel.connect();
-
-      const msg = createMessage({
-        content: 'Hello',
-        guildName: undefined,
-        authorDisplayName: 'Alice',
-      });
-      await triggerMessage(msg);
-
-      expect(opts.onChatMetadata).toHaveBeenCalledWith(
-        'dc:1234567890123456',
-        expect.any(String),
-        'Alice',
-        'discord',
-        false,
       );
     });
 
@@ -1064,20 +1036,12 @@ describe('DiscordChannel', () => {
     });
   });
 
-  // --- DM handling (unified path) ---
+  // --- DM handling (outbound-only; inbound DMs are dropped) ---
 
   describe('DM handling', () => {
     function dmOpts(overrides?: Partial<DiscordChannelOpts>) {
       return createTestOpts({
-        registeredGroups: vi.fn(() => ({
-          'dc:9999999999999999': {
-            name: 'DM: Alice',
-            folder: 'discord_dms_alice',
-            trigger: '@Andy',
-            added_at: '2024-01-01T00:00:00.000Z',
-            isDm: true,
-          },
-        })),
+        registeredGroups: vi.fn(() => ({})),
         ...overrides,
       });
     }
@@ -1091,48 +1055,30 @@ describe('DiscordChannel', () => {
       });
     }
 
-    it('auto-prepends trigger for DM messages', async () => {
+    it('drops inbound DM text (outbound-only)', async () => {
       const opts = dmOpts();
       const channel = new DiscordChannel('test-token', opts);
       await channel.connect();
 
       await triggerMessage(dmMessage({ content: 'hello' }));
 
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'dc:9999999999999999',
-        expect.objectContaining({ content: '@Andy hello' }),
-      );
+      expect(opts.onMessage).not.toHaveBeenCalled();
+      expect(opts.onChatMetadata).not.toHaveBeenCalled();
     });
 
-    it('does not double-prepend trigger for DMs', async () => {
-      const opts = dmOpts();
-      const channel = new DiscordChannel('test-token', opts);
-      await channel.connect();
-
-      await triggerMessage(dmMessage({ content: '@Andy hello' }));
-
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'dc:9999999999999999',
-        expect.objectContaining({ content: '@Andy hello' }),
-      );
-    });
-
-    it('strips bot mention and prepends trigger in DMs', async () => {
+    it('drops inbound DMs even when the bot is @mentioned', async () => {
       const opts = dmOpts();
       const channel = new DiscordChannel('test-token', opts);
       await channel.connect();
 
       await triggerMessage(
-        dmMessage({ content: '<@999888777> check this', mentionsBotId: true }),
+        dmMessage({ content: '<@111111111111111111> hi', mentionsBotId: true }),
       );
 
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'dc:9999999999999999',
-        expect.objectContaining({ content: '@Andy check this' }),
-      );
+      expect(opts.onMessage).not.toHaveBeenCalled();
     });
 
-    it('includes attachments in DM messages', async () => {
+    it('drops inbound DMs with attachments', async () => {
       const opts = dmOpts();
       const channel = new DiscordChannel('test-token', opts);
       await channel.connect();
@@ -1142,32 +1088,7 @@ describe('DiscordChannel', () => {
       ]);
       await triggerMessage(dmMessage({ content: 'look', attachments }));
 
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'dc:9999999999999999',
-        expect.objectContaining({
-          content: expect.stringContaining('[Image: photo.png]'),
-        }),
-      );
-    });
-
-    it('includes reply context in DM messages', async () => {
-      const opts = dmOpts();
-      const channel = new DiscordChannel('test-token', opts);
-      await channel.connect();
-
-      await triggerMessage(
-        dmMessage({
-          content: 'yes exactly',
-          reference: { messageId: 'msg_ref_123' },
-        }),
-      );
-
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'dc:9999999999999999',
-        expect.objectContaining({
-          content: expect.stringContaining('[Reply to Bob'),
-        }),
-      );
+      expect(opts.onMessage).not.toHaveBeenCalled();
     });
 
     it('does not register a raw packet handler', async () => {
@@ -1221,7 +1142,15 @@ describe('DiscordChannel', () => {
         owner: { id: '999888777' },
       };
       mockCh.fetchWebhooks.mockResolvedValueOnce({
+        size: 0,
         find: vi.fn(() => undefined),
+        filter: vi.fn(() => ({
+          size: 0,
+          find: vi.fn(() => undefined),
+          filter: vi.fn(),
+          map: vi.fn(() => []),
+        })),
+        map: vi.fn(() => []),
       });
       mockCh.createWebhook.mockResolvedValueOnce(newWebhook);
 

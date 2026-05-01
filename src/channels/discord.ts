@@ -1,5 +1,7 @@
 import {
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   Events,
   GatewayIntentBits,
@@ -12,6 +14,7 @@ import {
   SlashCommandBuilder,
   StringSelectMenuBuilder,
   AutocompleteInteraction,
+  ButtonInteraction,
   StringSelectMenuInteraction,
   TextChannel,
   User,
@@ -327,6 +330,14 @@ export class DiscordChannel implements Channel {
             await this.handleWordleStatusCommand(interaction);
             return;
           }
+          if (interaction.commandName === 'saga') {
+            await this.handleSagaCommand(interaction);
+            return;
+          }
+          if (interaction.commandName === 'emilio-week') {
+            await this.handleEmilioWeekCommand(interaction);
+            return;
+          }
           if (interaction.commandName === 'qotd') {
             await this.handleQotdCommand(interaction);
             return;
@@ -369,6 +380,16 @@ export class DiscordChannel implements Channel {
           }
           if (interaction.commandName === 'update-feeding') {
             await this.handleEmilioUpdateFeedingAutocomplete(interaction);
+            return;
+          }
+        }
+        if (interaction.isButton()) {
+          if (interaction.customId.startsWith('saga_nav:')) {
+            await this.handleSagaNav(interaction);
+            return;
+          }
+          if (interaction.customId.startsWith('emilio_day:')) {
+            await this.handleEmilioHistoryNav(interaction);
             return;
           }
         }
@@ -425,6 +446,18 @@ export class DiscordChannel implements Channel {
             new SlashCommandBuilder()
               .setName('wordle-status')
               .setDescription("Show today's Wordle progress (#family-fun only)")
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('saga')
+              .setDescription(
+                'Read the full Saga Wordle story so far (#family-fun only)',
+              )
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('emilio-week')
+              .setDescription(
+                "Show Emilio's feeding, sleep, and poop summary for the last 7 days (#emilio-care only)",
+              )
               .toJSON(),
             new SlashCommandBuilder()
               .setName('qotd')
@@ -849,6 +882,311 @@ export class DiscordChannel implements Channel {
     );
   }
 
+  // --- /saga ---
+
+  private loadSagaChapters(): Array<{
+    day: number;
+    date: string;
+    word: string;
+    text: string;
+  }> {
+    const sagaPath = path.resolve(
+      process.cwd(),
+      'groups',
+      'discord_family-fun',
+      'saga_state.json',
+    );
+    const saga = JSON.parse(fs.readFileSync(sagaPath, 'utf8')) as {
+      genre?: string;
+      chapters?: Array<{
+        day: number;
+        date: string;
+        word: string;
+        text: string;
+      }>;
+    };
+    return saga.chapters ?? [];
+  }
+
+  private buildSagaReply(
+    chapters: Array<{ day: number; date: string; word: string; text: string }>,
+    idx: number,
+  ): { content: string; components: ActionRowBuilder<ButtonBuilder>[] } {
+    const ch = chapters[idx];
+    const content = `**Day ${ch.day} of ${chapters.length} — ${ch.date} — ${ch.word.toUpperCase()}**\n\n${ch.text}`;
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`saga_nav:${idx - 1}`)
+        .setLabel('◀ Prev')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(idx === 0),
+      new ButtonBuilder()
+        .setCustomId(`saga_nav:${idx + 1}`)
+        .setLabel('Next ▶')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(idx === chapters.length - 1),
+    );
+    return { content, components: [row] };
+  }
+
+  private async handleSagaCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to defer /saga interaction');
+      return;
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group || group.folder !== 'discord_family-fun') {
+      await interaction.editReply(
+        '⚠️ `/saga` is only available in #family-fun.',
+      );
+      return;
+    }
+
+    let chapters: Array<{
+      day: number;
+      date: string;
+      word: string;
+      text: string;
+    }>;
+    try {
+      chapters = this.loadSagaChapters();
+    } catch (err) {
+      logger.error({ err }, 'Failed to read saga_state.json');
+      await interaction.editReply('⚠️ Could not read saga state.');
+      return;
+    }
+
+    if (chapters.length === 0) {
+      await interaction.editReply('No saga chapters yet.');
+      return;
+    }
+
+    await interaction.editReply(this.buildSagaReply(chapters, 0));
+    logger.info({ chapters: chapters.length }, '/saga slash command ran');
+  }
+
+  private async handleSagaNav(interaction: ButtonInteraction): Promise<void> {
+    const idx = parseInt(interaction.customId.split(':')[1], 10);
+    let chapters: Array<{
+      day: number;
+      date: string;
+      word: string;
+      text: string;
+    }>;
+    try {
+      chapters = this.loadSagaChapters();
+    } catch (err) {
+      logger.error({ err }, 'Failed to read saga_state.json for nav');
+      await interaction.update({
+        content: '⚠️ Could not read saga state.',
+        components: [],
+      });
+      return;
+    }
+
+    if (isNaN(idx) || idx < 0 || idx >= chapters.length) {
+      await interaction.update({
+        content: '⚠️ Invalid chapter.',
+        components: [],
+      });
+      return;
+    }
+
+    await interaction.update(this.buildSagaReply(chapters, idx));
+  }
+
+  // --- /emilio-history ---
+
+  private chicagoDateStr(date: Date = new Date()): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Chicago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  }
+
+  private prevDate(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d) - 86_400_000);
+    return dt.toISOString().slice(0, 10);
+  }
+
+  private nextDate(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d) + 86_400_000);
+    return dt.toISOString().slice(0, 10);
+  }
+
+  private async runEmilioCard(dateStr: string): Promise<string> {
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'groups',
+      'discord_emilio-care',
+      'build_status_card.mjs',
+    );
+    const { stdout } = await execFileAsync(
+      'node',
+      [scriptPath, '--date', dateStr],
+      {
+        timeout: 20_000,
+        maxBuffer: 1_000_000,
+        env: {
+          ...process.env,
+          GOOGLE_OAUTH_CREDENTIALS:
+            process.env.GOOGLE_OAUTH_CREDENTIALS ||
+            path.resolve(
+              process.cwd(),
+              'data',
+              'google-calendar',
+              'gcp-oauth.keys.json',
+            ),
+          GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+            process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
+            path.resolve(
+              os.homedir(),
+              '.config',
+              'google-calendar-mcp',
+              'tokens.json',
+            ),
+        },
+      },
+    );
+    return stdout.split(/═══ AGENT REF/)[0].trim();
+  }
+
+  private buildEmilioHistoryReply(
+    card: string,
+    dateStr: string,
+    today: string,
+  ): { content: string; components: ActionRowBuilder<ButtonBuilder>[] } {
+    const isToday = dateStr === today;
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`emilio_day:${this.prevDate(dateStr)}`)
+        .setLabel('◀ Prev Day')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`emilio_day:${this.nextDate(dateStr)}`)
+        .setLabel('Next Day ▶')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(isToday),
+    );
+    return { content: card, components: [row] };
+  }
+
+  private async handleEmilioHistoryNav(
+    interaction: ButtonInteraction,
+  ): Promise<void> {
+    const dateStr = interaction.customId.split(':')[1];
+    const today = this.chicagoDateStr();
+    if (!dateStr || dateStr > today) {
+      await interaction.update({
+        content: '⚠️ Invalid date.',
+        components: [],
+      });
+      return;
+    }
+    try {
+      const card = await this.runEmilioCard(dateStr);
+      await interaction.update(
+        this.buildEmilioHistoryReply(card, dateStr, today),
+      );
+    } catch (err) {
+      logger.error({ err, dateStr }, 'emilio_day nav failed');
+      await interaction.update({
+        content: '⚠️ Could not load that day.',
+        components: [],
+      });
+    }
+  }
+
+  // --- /emilio-week ---
+
+  private async handleEmilioWeekCommand(
+    interaction: import('discord.js').ChatInputCommandInteraction,
+  ): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to defer /emilio-week interaction');
+      return;
+    }
+
+    const chatJid = `dc:${interaction.channelId}`;
+    const group = this.opts.registeredGroups()[chatJid];
+    if (!group || group.folder !== 'discord_emilio-care') {
+      await interaction.editReply(
+        '⚠️ `/emilio-week` is only available in #emilio-care.',
+      );
+      return;
+    }
+
+    const scriptPath = path.resolve(
+      process.cwd(),
+      'scripts',
+      'emilio-week-slash.mjs',
+    );
+    let stdout: string;
+    try {
+      const res = await execFileAsync('node', [scriptPath], {
+        timeout: 25_000,
+        maxBuffer: 1_000_000,
+        env: {
+          ...process.env,
+          GOOGLE_OAUTH_CREDENTIALS:
+            process.env.GOOGLE_OAUTH_CREDENTIALS ||
+            path.resolve(
+              process.cwd(),
+              'data',
+              'google-calendar',
+              'gcp-oauth.keys.json',
+            ),
+          GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+            process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
+            path.resolve(
+              os.homedir(),
+              '.config',
+              'google-calendar-mcp',
+              'tokens.json',
+            ),
+        },
+      });
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { message?: string };
+      logger.error({ err: e.message }, '/emilio-week script failed');
+      await interaction.editReply(
+        `⚠️ Could not load weekly summary: ${e.message || 'unknown error'}`,
+      );
+      return;
+    }
+
+    let result: { ok?: boolean; table?: string; error?: string };
+    try {
+      result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
+    } catch {
+      await interaction.editReply(
+        '⚠️ Weekly summary returned unparseable output.',
+      );
+      return;
+    }
+
+    if (!result.ok || !result.table) {
+      await interaction.editReply(`⚠️ ${result.error || 'Unknown error'}`);
+      return;
+    }
+
+    await interaction.editReply(result.table);
+    logger.info('/emilio-week slash command ran');
+  }
+
   // --- /qotd ---
 
   // Panda question-of-the-day intake. Deterministic, host-side:
@@ -1257,7 +1595,15 @@ export class DiscordChannel implements Channel {
       await interaction.editReply('⚠️ Card script returned empty output.');
       return;
     }
-    await interaction.editReply(fitDiscordReply(card));
+
+    if (cfg.name === 'emilio') {
+      const today = this.chicagoDateStr();
+      await interaction.editReply(
+        this.buildEmilioHistoryReply(fitDiscordReply(card), today, today),
+      );
+    } else {
+      await interaction.editReply(fitDiscordReply(card));
+    }
     logger.info(
       { command: cfg.name, folder: cfg.folder, cardLength: card.length },
       'State-card slash command ran',
