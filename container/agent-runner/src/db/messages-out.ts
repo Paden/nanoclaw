@@ -87,6 +87,20 @@ export function writeMessageOut(msg: WriteMessageOut): number {
  * Instead, look up the platform_message_id from the delivered table (host writes this
  * after successful delivery).
  */
+export function getMaxSeq(): number {
+  const row = getOutboundDb()
+    .prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM messages_out')
+    .get() as { m: number };
+  return row.m;
+}
+
+export function countChatMessagesAfter(baselineSeq: number): number {
+  const row = getOutboundDb()
+    .prepare("SELECT COUNT(*) AS c FROM messages_out WHERE seq > ? AND kind = 'chat'")
+    .get(baselineSeq) as { c: number };
+  return row.c;
+}
+
 export function getMessageIdBySeq(seq: number): string | null {
   const inbound = getInboundDb();
 

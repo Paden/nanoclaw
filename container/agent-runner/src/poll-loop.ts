@@ -1,6 +1,6 @@
 import { findByName, getAllDestinations, type DestinationEntry } from './destinations.js';
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
-import { writeMessageOut } from './db/messages-out.js';
+import { writeMessageOut, getMaxSeq, countChatMessagesAfter } from './db/messages-out.js';
 import { touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
 import {
   clearContinuation,
@@ -160,6 +160,12 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
 
     log(`Processing ${keep.length} message(s), kinds: ${[...new Set(keep.map((m) => m.kind))].join(',')}`);
 
+    // Capture the outbound seq baseline so we can detect whether the agent
+    // emits any chat messages via send_message during this turn. The MCP
+    // tool runs in a separate stdio subprocess, so an in-process counter
+    // can't be shared — we query the shared outbound DB instead.
+    const turnBaselineSeq = getMaxSeq();
+
     const query = config.provider.query({
       prompt,
       continuation,
@@ -171,7 +177,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
     const skippedSet = new Set(skipped);
     const processingIds = ids.filter((id) => !commandIds.includes(id) && !skippedSet.has(id));
     try {
-      const result = await processQuery(query, routing, processingIds, config.providerName);
+      const result = await processQuery(query, routing, processingIds, config.providerName, turnBaselineSeq);
       if (result.continuation && result.continuation !== continuation) {
         continuation = result.continuation;
         setContinuation(config.providerName, continuation);
@@ -250,6 +256,7 @@ async function processQuery(
   routing: RoutingContext,
   initialBatchIds: string[],
   providerName: string,
+  turnBaselineSeq: number,
 ): Promise<QueryResult> {
   let queryContinuation: string | undefined;
   let done = false;
@@ -348,7 +355,7 @@ async function processQuery(
         // at all — either way the turn is finished.
         markCompleted(initialBatchIds);
         if (event.text) {
-          dispatchResultText(event.text, routing);
+          dispatchResultText(event.text, routing, turnBaselineSeq);
         }
       }
     }
@@ -389,7 +396,7 @@ function handleEvent(event: ProviderEvent, _routing: RoutingContext): void {
  * This preserves the simple case of one user on one channel — the agent
  * doesn't need to know about wrapping syntax at all.
  */
-function dispatchResultText(text: string, routing: RoutingContext): void {
+function dispatchResultText(text: string, routing: RoutingContext, turnBaselineSeq: number): void {
   const MESSAGE_RE = /<message\s+to="([^"]+)"\s*>([\s\S]*?)<\/message>/g;
 
   let match: RegExpExecArray | null;
@@ -419,6 +426,25 @@ function dispatchResultText(text: string, routing: RoutingContext): void {
   }
 
   const scratchpad = stripInternalTags(scratchpadParts.join(''));
+
+  // Suppress the implicit closing text when the agent already wrote any
+  // chat messages this turn (e.g. via send_message). The LLM's parting
+  // summary is for itself — delivering it duplicates content the agent
+  // explicitly chose to post (e.g. an Emilio webhook chime followed by
+  // Claudio echoing the same chime text). The MCP tool runs in a
+  // separate stdio subprocess, so we use the shared outbound DB as the
+  // source of truth: count chat messages with seq > turn baseline.
+  // If the agent wants follow-up content delivered, it should use
+  // another explicit send_message call.
+  if (sent === 0 && scratchpad) {
+    const explicitChatCount = countChatMessagesAfter(turnBaselineSeq);
+    if (explicitChatCount > 0) {
+      log(
+        `[scratchpad] suppressed implicit closing text (${scratchpad.length} chars); ${explicitChatCount} explicit chat message(s) already sent this turn`,
+      );
+      return;
+    }
+  }
 
   // Single-destination shortcut: the agent wrote plain text — send to
   // the session's originating channel (from session_routing) if available,
