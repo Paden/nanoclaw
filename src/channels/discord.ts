@@ -1593,6 +1593,15 @@ export class DiscordChannel implements ChannelAdapter {
       text = content;
     } else if (content && typeof content.text === 'string') {
       text = content.text;
+    } else if (content && content.type === 'card') {
+      // Chat SDK card format — extract description as plain text
+      const card = content.card as Record<string, unknown> | undefined;
+      const parts = [card?.title, card?.description].filter(Boolean);
+      text = parts.join('\n') || (content.fallbackText as string) || '';
+      // Propagate label/pin/upsert from the card payload if present
+      if (!content.label && card?.label) content.label = card.label;
+      if (!content.pin && card?.pin) content.pin = card.pin;
+      if (!content.upsert && card?.upsert) content.upsert = card.upsert;
     } else {
       text = JSON.stringify(content);
     }

@@ -141,6 +141,9 @@ export const sendCard: McpToolDefinition = {
           description: 'Card structure with title, description, and optional children/actions',
         },
         fallbackText: { type: 'string', description: 'Text fallback for platforms without card support' },
+        label: { type: 'string', description: 'Label for upsert/pin tracking (e.g. "status_card"). When set with upsert:true, edits the existing pinned message.' },
+        pin: { type: 'boolean', description: 'Pin this card message.' },
+        upsert: { type: 'boolean', description: 'Edit existing labeled message instead of posting a new one.' },
       },
       required: ['card'],
     },
@@ -152,16 +155,25 @@ export const sendCard: McpToolDefinition = {
     const id = generateId();
     const r = routing();
 
+    const content: Record<string, unknown> = {
+      type: 'card',
+      card,
+      fallbackText: (args.fallbackText as string) || '',
+    };
+    if (args.label) content.label = args.label as string;
+    if (args.pin) content.pin = true;
+    if (args.upsert) content.upsert = true;
+
     writeMessageOut({
       id,
       kind: 'chat-sdk',
       platform_id: r.platform_id,
       channel_type: r.channel_type,
       thread_id: r.thread_id,
-      content: JSON.stringify({ type: 'card', card, fallbackText: (args.fallbackText as string) || '' }),
+      content: JSON.stringify(content),
     });
 
-    log(`send_card: ${id}`);
+    log(`send_card: ${id}${args.label ? ` [${args.label}]` : ''}`);
     return ok(`Card sent (id: ${id})`);
   },
 };
