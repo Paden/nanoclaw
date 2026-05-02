@@ -296,10 +296,22 @@ function buildMounts(
     mounts.push({ hostPath: fragmentsDir, containerPath: '/workspace/agent/.claude-fragments', readonly: true });
   }
 
-  // Global memory directory — always read-only.
+  // Global memory directory — copy into session dir instead of nested
+  // bind-mount. macOS Docker Desktop intermittently fails to overlay a
+  // nested bind mount on top of an outer host bind (the outer /workspace
+  // mount masks the inner one), leaving /workspace/global empty inside
+  // the container. Copying sidesteps the issue and the session dir is
+  // already mounted as /workspace. Refreshed on every spawn so host
+  // edits propagate.
   const globalDir = path.join(GROUPS_DIR, 'global');
   if (fs.existsSync(globalDir)) {
-    mounts.push({ hostPath: globalDir, containerPath: '/workspace/global', readonly: true });
+    const targetGlobal = path.join(sessDir, 'global');
+    try {
+      fs.rmSync(targetGlobal, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    fs.cpSync(globalDir, targetGlobal, { recursive: true });
   }
 
   // Shared CLAUDE.md — read-only, imported by the composed entry point via

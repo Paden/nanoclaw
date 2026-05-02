@@ -277,7 +277,12 @@ export class ClaudeProvider implements AgentProvider {
         resume: input.continuation,
         pathToClaudeCodeExecutable: '/pnpm/claude',
         systemPrompt: instructions ? { type: 'preset' as const, preset: 'claude_code' as const, append: instructions } : undefined,
-        allowedTools: TOOL_ALLOWLIST,
+        allowedTools: [
+          ...TOOL_ALLOWLIST,
+          ...Object.keys(this.mcpServers)
+            .filter((name) => name !== 'nanoclaw')
+            .map((name) => `mcp__${name}__*`),
+        ],
         disallowedTools: SDK_DISALLOWED_TOOLS,
         env: this.env,
         permissionMode: 'bypassPermissions',
