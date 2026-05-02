@@ -108,7 +108,7 @@ export const WEBHOOK_PERSONAS: Record<string, { name: string; avatar?: string }>
   },
   Nyx: {
     name: 'Nyx 🌙',
-    // avatar expired — re-upload Nyx image to imgur and update this
+    avatar: 'https://i.imgur.com/hSsOdsW.jpeg',
   },
   Zima: {
     name: 'Zima ❄️',
