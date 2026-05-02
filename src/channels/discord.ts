@@ -38,6 +38,36 @@ import { stripCard, fitDiscordReply } from '../state-card.js';
 
 const execFileAsync = promisify(execFile);
 
+// Emoji-name → unicode map for the add_reaction MCP tool. The tool accepts
+// names like "thumbs_up" / "eyes" but Discord.js's msg.react() needs the
+// actual unicode codepoint. Anything not in this map is passed through
+// verbatim in case the agent already supplied unicode.
+const REACTION_EMOJI_MAP: Record<string, string> = {
+  thumbs_up: '👍',
+  thumbs_down: '👎',
+  heart: '❤️',
+  eyes: '👀',
+  check: '✅',
+  white_check_mark: '✅',
+  x: '❌',
+  fire: '🔥',
+  tada: '🎉',
+  pray: '🙏',
+  ok: '👌',
+  raised_hands: '🙌',
+  clap: '👏',
+  rocket: '🚀',
+  sparkles: '✨',
+  warning: '⚠️',
+  question: '❓',
+  exclamation: '❗',
+  sob: '😭',
+  joy: '😂',
+  smile: '😄',
+  thinking: '🤔',
+  wave: '👋',
+};
+
 export class DiscordChannel implements ChannelAdapter {
   name = 'discord';
   channelType = 'discord';
@@ -1588,6 +1618,28 @@ export class DiscordChannel implements ChannelAdapter {
 
   async deliver(platformId: string, _threadId: string | null, message: OutboundMessage): Promise<string | undefined> {
     const content = message.content as Record<string, unknown> | null;
+
+    // Reaction operation: add_reaction MCP tool emits a chat-kind row with
+    // {operation: "reaction", messageId, emoji}. Translate to a Discord
+    // reaction; do not post a chat message.
+    if (content && content.operation === 'reaction') {
+      const rawId = String(content.messageId || '');
+      const discordMsgId = rawId.split(':')[0]; // strip :agentGroupId suffix
+      const emojiName = String(content.emoji || '');
+      const emojiUnicode = REACTION_EMOJI_MAP[emojiName] || emojiName;
+      if (!this.client || !discordMsgId || !emojiUnicode) return undefined;
+      try {
+        const ch = await this.client.channels.fetch(platformId);
+        if (ch && 'messages' in ch) {
+          const msg = await (ch as TextChannel).messages.fetch(discordMsgId);
+          await msg.react(emojiUnicode);
+        }
+      } catch (err) {
+        log.warn('Failed to add Discord reaction', { discordMsgId, emojiName, err });
+      }
+      return undefined;
+    }
+
     let text: string;
     if (typeof content === 'string') {
       text = content;
@@ -1609,7 +1661,8 @@ export class DiscordChannel implements ChannelAdapter {
       const question = (content.question as string) || '';
       const options = Array.isArray(content.options) ? (content.options as unknown[]) : [];
       const optLines = options.map((o, i) => {
-        const label = typeof o === 'string' ? o : ((o as Record<string, unknown>)?.label as string) || `Option ${i + 1}`;
+        const label =
+          typeof o === 'string' ? o : ((o as Record<string, unknown>)?.label as string) || `Option ${i + 1}`;
         return `${i + 1}. ${label}`;
       });
       text = [title && `**${title}**`, question, optLines.join('\n')].filter(Boolean).join('\n\n');

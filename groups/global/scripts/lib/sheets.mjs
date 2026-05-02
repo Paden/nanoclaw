@@ -29,19 +29,34 @@ export async function getAccessToken({
   // Support both "installed" and "web" OAuth client shapes
   const keys = keysRaw.installed || keysRaw.web;
   const tokens = JSON.parse(fs.readFileSync(tokensPath, 'utf8'));
-  const resp = await fetchFn('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: keys.client_id,
-      client_secret: keys.client_secret,
-      refresh_token: tokens.normal.refresh_token,
-      grant_type: 'refresh_token',
-    }),
+  const body = new URLSearchParams({
+    client_id: keys.client_id,
+    client_secret: keys.client_secret,
+    refresh_token: tokens.normal.refresh_token,
+    grant_type: 'refresh_token',
   });
-  const data = await resp.json();
-  if (!data.access_token) throw new Error(`Token mint failed: ${JSON.stringify(data)}`);
-  return data.access_token;
+
+  // Retry on transient network failures. Host-side slash commands run on a
+  // residential network where Wifi/DNS blips cause ETIMEDOUT/ECONNRESET on
+  // the OAuth endpoint, killing the whole command with a stack trace.
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const resp = await fetchFn('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await resp.json();
+      if (!data.access_token) throw new Error(`Token mint failed: ${JSON.stringify(data)}`);
+      return data.access_token;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 async function request(method, url, body, token, fetchFn) {
