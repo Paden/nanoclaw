@@ -1602,6 +1602,17 @@ export class DiscordChannel implements ChannelAdapter {
       if (!content.label && card?.label) content.label = card.label;
       if (!content.pin && card?.pin) content.pin = card.pin;
       if (!content.upsert && card?.upsert) content.upsert = card.upsert;
+    } else if (content && content.type === 'ask_question') {
+      // Render as plain text question + numbered options (Discord button cards
+      // require interactions wiring we don't have yet; this at least posts the question).
+      const title = (content.title as string) || '';
+      const question = (content.question as string) || '';
+      const options = Array.isArray(content.options) ? (content.options as unknown[]) : [];
+      const optLines = options.map((o, i) => {
+        const label = typeof o === 'string' ? o : ((o as Record<string, unknown>)?.label as string) || `Option ${i + 1}`;
+        return `${i + 1}. ${label}`;
+      });
+      text = [title && `**${title}**`, question, optLines.join('\n')].filter(Boolean).join('\n\n');
     } else {
       text = JSON.stringify(content);
     }
