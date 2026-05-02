@@ -293,7 +293,7 @@ export async function runUpdateFeeding({ userId, amount, row }, deps) {
   await deps.updateFeedingAmount(token, { sheetRow: target.sheetRow, amount: n });
   const owner = ownerFor(userId);
   const tsLabel = formatSheetTimeOfDay(target.timestamp);
-  await emitFollowups(
+  const followups = await emitFollowups(
     deps,
     'feeding_update',
     `${owner} · ${tsLabel} · ${target.amount}oz → ${n}oz`,
@@ -301,6 +301,7 @@ export async function runUpdateFeeding({ userId, amount, row }, deps) {
   );
   return {
     ok: true,
+    ...followups,
     reply: `Feeding at ${tsLabel} updated: ${target.amount}oz → ${n}oz.`,
   };
 }
