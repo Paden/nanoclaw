@@ -1598,7 +1598,10 @@ export class DiscordChannel implements ChannelAdapter {
     }
 
     // Strip <internal>...</internal> blocks and [no-reply] sentinel
-    text = text.replace(/<internal>[\s\S]*?<\/internal>/g, '').replace(/\s*\[no-reply\]\s*$/i, '').trim();
+    text = text
+      .replace(/<internal>[\s\S]*?<\/internal>/g, '')
+      .replace(/\s*\[no-reply\]\s*$/i, '')
+      .trim();
     if (!text) return undefined;
 
     // Webhook persona routing
@@ -1616,7 +1619,9 @@ export class DiscordChannel implements ChannelAdapter {
         try {
           const labels = JSON.parse(fs.readFileSync(labelsPath, 'utf8'));
           pinnedId = labels?.[content.label as string]?.id ?? null;
-        } catch { /* no label file yet */ }
+        } catch {
+          /* no label file yet */
+        }
 
         if (pinnedId) {
           try {
@@ -1640,11 +1645,19 @@ export class DiscordChannel implements ChannelAdapter {
               const msg = await (ch as TextChannel).messages.fetch(msgId);
               await msg.pin();
             }
-            const labels = (() => { try { return JSON.parse(fs.readFileSync(labelsPath, 'utf8')); } catch { return {}; } })();
+            const labels = (() => {
+              try {
+                return JSON.parse(fs.readFileSync(labelsPath, 'utf8'));
+              } catch {
+                return {};
+              }
+            })();
             labels[content.label as string] = { id: msgId, date: new Date().toISOString().slice(0, 10) };
             fs.mkdirSync(path.dirname(labelsPath), { recursive: true });
             fs.writeFileSync(labelsPath, JSON.stringify(labels, null, 2));
-          } catch { /* best effort */ }
+          } catch {
+            /* best effort */
+          }
         }
         return msgId;
       }
