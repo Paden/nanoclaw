@@ -112,7 +112,8 @@ export const WEBHOOK_PERSONAS: Record<string, { name: string; avatar?: string }>
   },
   Zima: {
     name: 'Zima ❄️',
-    // avatar expired — re-upload Zima image to imgur and update this
+    avatar:
+      'https://chatgpt.com/backend-api/estuary/public_content/enc/eyJpZCI6Im1fNjlmMjFkNDZiZTIwODE5MTgzYWMzN2ZiOTg2NzBjMjc6ZmlsZV8wMDAwMDAwMDM3NWM3MjJmODNlYWU3NGQ4MjkyNTYyZCIsInRzIjoiMjA1NzIiLCJwIjoicHlpIiwiY2lkIjoiMSIsInNpZyI6ImM3OWRkOTQyYWE2OWZjYWU2ZmM5MWQ1OGQ2MmQwNTQxNjU4OGRmODJjYjFhMmQxYzBkNTdmMjAxODg1ODVjMWUiLCJ2IjoiMCIsImdpem1vX2lkIjpudWxsLCJjcyI6bnVsbCwiY2RuIjpudWxsLCJjcCI6bnVsbCwibWEiOm51bGx9',
   },
   Emilio: {
     name: 'Emilio 👶',
