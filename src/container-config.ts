@@ -47,6 +47,19 @@ export interface ContainerConfig {
   agentGroupId?: string;
   /** Max messages per prompt. Falls back to code default if unset. */
   maxMessagesPerPrompt?: number;
+  /**
+   * Per-group container env vars. Applied as `-e KEY=VALUE` at spawn.
+   * Values may reference host env vars via `${VAR}` substitution — see
+   * container-runner. Setting `ANTHROPIC_BASE_URL` here is also the
+   * signal that this group bypasses OneCLI / the Anthropic API.
+   */
+  env?: Record<string, string>;
+  /**
+   * Hosts to make unreachable from inside the container — pushed as
+   * `--add-host <host>:0.0.0.0`. Defensive block against config drift
+   * (e.g. always include `api.anthropic.com` for Ollama-routed groups).
+   */
+  blockedHosts?: string[];
 }
 
 function emptyConfig(): ContainerConfig {
@@ -55,6 +68,17 @@ function emptyConfig(): ContainerConfig {
     packages: { apt: [], npm: [] },
     additionalMounts: [],
     skills: 'all',
+    // New groups default to Ollama Pro Cloud routing. The host has
+    // OLLAMA_API_KEY in .env; container-runner substitutes ${OLLAMA_API_KEY}
+    // into the env block at spawn time. To switch a group to Claude API,
+    // delete the `env` and `blockedHosts` keys from container.json.
+    env: {
+      ANTHROPIC_BASE_URL: 'http://host.docker.internal:11435',
+      ANTHROPIC_API_KEY: '${OLLAMA_API_KEY}',
+      NO_PROXY: 'host.docker.internal',
+      no_proxy: 'host.docker.internal',
+    },
+    blockedHosts: ['api.anthropic.com'],
   };
 }
 
@@ -87,6 +111,8 @@ export function readContainerConfig(folder: string): ContainerConfig {
       assistantName: raw.assistantName,
       agentGroupId: raw.agentGroupId,
       maxMessagesPerPrompt: raw.maxMessagesPerPrompt,
+      env: raw.env,
+      blockedHosts: raw.blockedHosts,
     };
   } catch (err) {
     console.error(`[container-config] failed to parse ${p}: ${String(err)}`);

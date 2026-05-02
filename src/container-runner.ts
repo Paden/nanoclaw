@@ -11,18 +11,17 @@ import path from 'path';
 import { OneCLI } from '@onecli-sh/sdk';
 
 import {
-  ANTHROPIC_MODEL,
   CONTAINER_IMAGE,
   CONTAINER_IMAGE_BASE,
   CONTAINER_INSTALL_LABEL,
   DATA_DIR,
   GROUPS_DIR,
-  OLLAMA_API_KEY,
   ONECLI_API_KEY,
   ONECLI_URL,
   TIMEZONE,
 } from './config.js';
 import { readContainerConfig, writeContainerConfig } from './container-config.js';
+import { readEnvFile } from './env.js';
 import { CONTAINER_RUNTIME_BIN, hostGatewayArgs, readonlyMountArgs, stopContainer } from './container-runtime.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
 import { getAgentGroup } from './db/agent-groups.js';
@@ -49,6 +48,34 @@ import {
 import type { AgentGroup, Session } from './types.js';
 
 const onecli = new OneCLI({ url: ONECLI_URL, apiKey: ONECLI_API_KEY });
+
+/**
+ * Substitute `${VAR}` references in a container.json env value, looking
+ * first in `process.env` and falling back to the host's `.env` file (via
+ * `readEnvFile`, which intentionally does not pollute process.env so
+ * secrets aren't inherited by unrelated child processes). Throws on
+ * missing vars — a referenced-but-undefined var is a config error worth
+ * surfacing at spawn rather than silently injecting an empty value.
+ */
+function substituteEnvVars(value: string): string {
+  // Collect all referenced vars first so we can do one .env read for the batch.
+  const referenced = new Set<string>();
+  const re = /\$\{([A-Z_][A-Z0-9_]*)\}/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(value)) !== null) referenced.add(m[1]);
+  if (referenced.size === 0) return value;
+
+  const fileEnv = readEnvFile(Array.from(referenced));
+  return value.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/gi, (_match, varName: string) => {
+    const v = process.env[varName] ?? fileEnv[varName];
+    if (v === undefined || v === '') {
+      throw new Error(
+        `container.json env references \${${varName}} but that variable is not set in process.env or .env`,
+      );
+    }
+    return v;
+  });
+}
 
 /** Active containers tracked by session ID. */
 const activeContainers = new Map<string, { process: ChildProcess; containerName: string }>();
@@ -479,20 +506,42 @@ async function buildContainerArgs(
     }
   }
 
-  // Model routing: if ANTHROPIC_MODEL is not a Claude model, bypass OneCLI
-  // and point the SDK directly at Ollama's Anthropic-compatible API on port 11435.
-  const anthropicModel = ANTHROPIC_MODEL;
-  const isLocalModel = anthropicModel && !anthropicModel.startsWith('claude-');
+  // Per-group env block from container.json. Supports `${VAR}` substitution
+  // from host process.env so secrets (e.g. ${OLLAMA_API_KEY}) stay out of
+  // the tracked container.json. A missing referenced var fails the spawn
+  // loudly rather than silently injecting an empty value.
+  if (containerConfig.env) {
+    for (const [key, rawValue] of Object.entries(containerConfig.env)) {
+      const value = substituteEnvVars(rawValue);
+      args.push('-e', `${key}=${value}`);
+    }
+  }
 
-  if (isLocalModel) {
-    args.push('-e', `ANTHROPIC_MODEL=${anthropicModel}`);
-    args.push('-e', 'ANTHROPIC_BASE_URL=http://host.docker.internal:11435');
-    args.push('-e', `ANTHROPIC_API_KEY=${OLLAMA_API_KEY}`);
+  // Hosts to make unreachable inside the container (defensive — e.g.
+  // pin api.anthropic.com to 0.0.0.0 for Ollama-routed groups so config
+  // drift can't accidentally bill the Anthropic account).
+  if (containerConfig.blockedHosts) {
+    for (const host of containerConfig.blockedHosts) {
+      args.push('--add-host', `${host}:0.0.0.0`);
+    }
+  }
+
+  // Routing decision: if the group's container.json sets ANTHROPIC_BASE_URL,
+  // it's pointed somewhere other than the Anthropic API — bypass OneCLI.
+  // Otherwise fall through to the OneCLI gateway for credential injection.
+  const usesAlternateBackend = !!containerConfig.env?.ANTHROPIC_BASE_URL;
+  if (usesAlternateBackend) {
+    // Telemetry / non-essential-traffic suppression — these are SDK-level
+    // optimizations that apply to any non-Anthropic backend (Ollama's KV
+    // cache uses prefix-match; mutating headers per-request flushes it).
     args.push('-e', 'CLAUDE_CODE_ATTRIBUTION_HEADER=0');
     args.push('-e', 'DISABLE_TELEMETRY=1');
     args.push('-e', 'DISABLE_ERROR_REPORTING=1');
     args.push('-e', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1');
-    log.info('Routing to Ollama (local model)', { containerName, model: anthropicModel });
+    log.info('Routing to alternate backend', {
+      containerName,
+      baseUrl: containerConfig.env?.ANTHROPIC_BASE_URL,
+    });
   } else {
     // OneCLI gateway — injects HTTPS_PROXY + certs so container API calls
     // are routed through the agent vault for credential injection.
