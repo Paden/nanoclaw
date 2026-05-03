@@ -298,6 +298,10 @@ export class DiscordChannel implements ChannelAdapter {
           await this.handleEmilioWeekCommand(interaction);
           return;
         }
+        if (interaction.commandName === 'emilio-day') {
+          await this.handleEmilioDayCommand(interaction);
+          return;
+        }
         if (interaction.commandName === 'qotd') {
           await this.handleQotdCommand(interaction);
           return;
@@ -401,6 +405,16 @@ export class DiscordChannel implements ChannelAdapter {
             new SlashCommandBuilder()
               .setName('emilio-week')
               .setDescription("Show Emilio's feeding, sleep, and poop summary for the last 7 days (#emilio-care only)")
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('emilio-day')
+              .setDescription("Chronological event log for one day of Emilio activity (#emilio-care only)")
+              .addStringOption((opt) =>
+                opt
+                  .setName('date')
+                  .setDescription('Day to show. "today" (default), "yesterday", or YYYY-MM-DD.')
+                  .setRequired(false),
+              )
               .toJSON(),
             new SlashCommandBuilder()
               .setName('qotd')
@@ -934,6 +948,70 @@ export class DiscordChannel implements ChannelAdapter {
 
     await interaction.editReply(result.table);
     log.info('/emilio-week slash command ran');
+  }
+
+  // --- /emilio-day ---
+
+  private async handleEmilioDayCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      log.warn('Failed to defer /emilio-day interaction', { err });
+      return;
+    }
+
+    const channelFolder = DiscordChannel.CHANNEL_FOLDERS[interaction.channelId];
+    if (!channelFolder || channelFolder !== 'discord_emilio-care') {
+      await interaction.editReply('⚠️ `/emilio-day` is only available in #emilio-care.');
+      return;
+    }
+
+    const dateOpt = interaction.options.getString('date') || 'today';
+    // Reject anything that isn't today/yesterday/YYYY-MM-DD before spawning the script.
+    if (!/^(today|yesterday|\d{4}-\d{2}-\d{2})$/.test(dateOpt)) {
+      await interaction.editReply('⚠️ `date` must be `today`, `yesterday`, or `YYYY-MM-DD`.');
+      return;
+    }
+
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-day-slash.mjs');
+    let stdout: string;
+    try {
+      const res = await execFileAsync('node', [scriptPath, `--date=${dateOpt}`], {
+        timeout: 25_000,
+        maxBuffer: 1_000_000,
+        env: {
+          ...process.env,
+          GOOGLE_OAUTH_CREDENTIALS:
+            process.env.GOOGLE_OAUTH_CREDENTIALS ||
+            path.resolve(process.cwd(), 'data', 'google-calendar', 'gcp-oauth.keys.json'),
+          GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+            process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
+            path.resolve(os.homedir(), '.config', 'google-calendar-mcp', 'tokens.json'),
+        },
+      });
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { message?: string };
+      log.error('/emilio-day script failed', { err: e.message });
+      await interaction.editReply(`⚠️ Could not load day summary: ${e.message || 'unknown error'}`);
+      return;
+    }
+
+    let result: { ok?: boolean; table?: string; error?: string };
+    try {
+      result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
+    } catch {
+      await interaction.editReply('⚠️ Day summary returned unparseable output.');
+      return;
+    }
+
+    if (!result.ok || !result.table) {
+      await interaction.editReply(`⚠️ ${result.error || 'Unknown error'}`);
+      return;
+    }
+
+    await interaction.editReply(result.table);
+    log.info('/emilio-day slash command ran', { date: dateOpt });
   }
 
   // --- /qotd ---
