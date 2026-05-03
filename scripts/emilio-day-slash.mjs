@@ -255,17 +255,31 @@ const poopCount = events.filter((e) => e.poop && e.poop !== 'wet').length;
 const sleepHours = Math.floor(totalSleep / 60);
 const sleepMins = totalSleep % 60;
 
-// Column widths — tuned to fit Discord's mobile code-block width
-// (~32 chars per line). Total row: 5 + 8 + 4 + 5 + 4 separators = 26.
-// Drop the +─+|│ box chrome entirely; rely on monospace alignment.
-const COL = { time: 5, feed: 8, poop: 4, sleep: 5 };
-const header = `${pad('Time', COL.time)} ${pad('Feed', COL.feed)} ${pad('💩', COL.poop)} ${pad('Sleep', COL.sleep)}`;
-const headerRule = '─'.repeat(COL.time + COL.feed + COL.poop + COL.sleep + 3);
+// Column widths — match /emilio-week's accepted format style: keep the
+// box-drawing chrome so the table reads as a table, but stay at 31 chars
+// total so it fits Discord's mobile code-block width. Emoji-only poop
+// column matches week's `💩` cell (2 chars, no padding).
+//   `| ttttt | feeeeeee | sssss | PP |`
+//    1+1+ 5 +1+1+ 8 +1+1+ 4 +1+1+ 2 +1 = 28? let me recount properly.
+//   chrome breakdown: 5 vertical bars + 4 spaces left + 4 spaces right = 13
+//   content: 5 + 8 + 4 + 2 = 19  → total 32 (within mobile cap).
+const COL = { time: 5, feed: 8, sleep: 5, poop: 2 };
+const divider = `+${'─'.repeat(COL.time + 2)}+${'─'.repeat(COL.feed + 2)}+${'─'.repeat(COL.sleep + 2)}+${'─'.repeat(COL.poop + 2)}+`;
+const header = `| ${pad('Time', COL.time)} | ${pad('Feed', COL.feed)} | ${pad('Sleep', COL.sleep)} | 💩 |`;
+
+// Map textual poop label → 2-char emoji cell. Empty rows get spaces so
+// the column stays aligned with the header.
+function poopGlyph(label) {
+  if (label === 'wet') return '💧';
+  if (label === 'poop') return '💩';
+  if (label === 'both') return '⚠️';
+  return '  ';
+}
 
 const tableRows = mergedEvents.length === 0
-  ? ['— no events —']
+  ? [`| ${pad('— no events —', COL.time + COL.feed + COL.sleep + COL.poop + 9)} |`]
   : mergedEvents.map((e) =>
-      `${pad(fmtTime(e.ts), COL.time)} ${pad(e.feed, COL.feed)} ${pad(e.poop, COL.poop)} ${pad(e.sleep, COL.sleep)}`,
+      `| ${pad(fmtTime(e.ts), COL.time)} | ${pad(e.feed, COL.feed)} | ${pad(e.sleep, COL.sleep)} | ${poopGlyph(e.poop)} |`,
     );
 
 const summary = events.length === 0
@@ -277,8 +291,9 @@ const heading = targetDate === today ? 'today' : targetDate === addDays(today, -
 const table =
   `\`\`\`\n` +
   `Emilio — ${heading}\n\n` +
-  `${header}\n${headerRule}\n` +
+  `${divider}\n${header}\n${divider}\n` +
   tableRows.join('\n') + '\n' +
+  `${divider}\n` +
   `\`\`\`` +
   summary;
 
