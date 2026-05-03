@@ -368,6 +368,29 @@ function buildMounts(
     mounts.push(...validated);
   }
 
+  // Ops-bot mounts: the `overmind` agent group monitors the host (logs,
+  // every session DB, host scripts) so it needs read-only access to the
+  // operator-side filesystem. Mounted at /host/* — OUTSIDE /workspace —
+  // to dodge macOS Docker's nested-bind-mount flakiness. This is a
+  // privileged surface (overmind can read every other group's session
+  // DBs, including DM content) and exists because v1's design colocated
+  // ops with the rest of the repo. If a future redesign moves ops
+  // visibility behind structured MCP tools, delete this block.
+  if (agentGroup.name === 'overmind') {
+    const opsLogs = path.join(projectRoot, 'logs');
+    const opsSessions = path.join(projectRoot, 'data', 'v2-sessions');
+    const opsScripts = path.join(projectRoot, 'scripts');
+    if (fs.existsSync(opsLogs)) {
+      mounts.push({ hostPath: opsLogs, containerPath: '/host/logs', readonly: true });
+    }
+    if (fs.existsSync(opsSessions)) {
+      mounts.push({ hostPath: opsSessions, containerPath: '/host/sessions', readonly: true });
+    }
+    if (fs.existsSync(opsScripts)) {
+      mounts.push({ hostPath: opsScripts, containerPath: '/host/scripts', readonly: true });
+    }
+  }
+
   // Provider-contributed mounts (e.g. opencode-xdg)
   if (providerContribution.mounts) {
     mounts.push(...providerContribution.mounts);
