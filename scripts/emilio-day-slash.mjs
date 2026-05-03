@@ -145,13 +145,26 @@ function parseTime(val) {
 const midnight = chicagoMidnightTs(targetDate);
 const nextMidnight = chicagoMidnightTs(addDays(targetDate, 1));
 
+// Compact source abbreviation: "Bottle" → "B", "Formula" → "F",
+// "Breast" → "Br", anything else → first letter uppercased. Saves
+// ~6 chars per row vs the full word — important for fitting Discord's
+// mobile code-block width.
+function abbrevSrc(src) {
+  if (!src) return '';
+  const s = src.trim().toLowerCase();
+  if (s.startsWith('bottle')) return 'B';
+  if (s.startsWith('formula')) return 'F';
+  if (s.startsWith('breast')) return 'Br';
+  return src.trim()[0].toUpperCase();
+}
+
 const events = [];
 
 for (const r of feeds) {
   const t = parseTime(r['Feed time']);
   if (!t || t.ts < midnight || t.ts >= nextMidnight) continue;
   const oz = parseFloat(r['Amount (oz)'] || '0') || 0;
-  const src = (r['Source'] || '').trim();
+  const src = abbrevSrc(r['Source'] || '');
   events.push({
     ts: t.ts,
     feed: oz > 0 ? `${oz % 1 === 0 ? oz.toFixed(0) : oz.toFixed(1)}oz${src ? ' ' + src : ''}` : '',
@@ -180,7 +193,7 @@ for (const r of sleeps) {
     ts: t.ts,
     feed: '',
     poop: '',
-    sleep: dur > 0 ? `${Math.round(dur)} min` : 'open',
+    sleep: dur > 0 ? `${Math.round(dur)}m` : 'open',
   });
 }
 
@@ -205,12 +218,18 @@ for (const e of events) {
 // --- Format ---
 
 function fmtTime(ts) {
-  return new Intl.DateTimeFormat('en-US', {
+  // 24-hour HH:MM keeps rows narrow enough for Discord's mobile code-block
+  // width (~30 chars). AM/PM is implicit from chronological ordering — the
+  // table starts at midnight and stops before next midnight.
+  const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: TZ,
-    hour: 'numeric',
+    hour: '2-digit',
     minute: '2-digit',
-    hour12: true,
-  }).format(new Date(ts)).replace(/ /g, ' '); // strip narrow no-break space
+    hour12: false,
+  }).formatToParts(new Date(ts));
+  const h = parts.find((p) => p.type === 'hour')?.value || '00';
+  const m = parts.find((p) => p.type === 'minute')?.value || '00';
+  return `${h}:${m}`;
 }
 
 function dayLabel(dateStr) {
@@ -228,7 +247,7 @@ const totalOz = events.reduce((s, e) => {
   return s + (m ? parseFloat(m[1]) : 0);
 }, 0);
 const totalSleep = events.reduce((s, e) => {
-  const m = e.sleep.match(/^(\d+) min/);
+  const m = e.sleep.match(/^(\d+)m/);
   return s + (m ? parseInt(m[1]) : 0);
 }, 0);
 const feedCount = events.filter((e) => e.feed).length;
@@ -236,15 +255,17 @@ const poopCount = events.filter((e) => e.poop && e.poop !== 'wet').length;
 const sleepHours = Math.floor(totalSleep / 60);
 const sleepMins = totalSleep % 60;
 
-// Column widths
-const COL = { time: 8, feed: 13, poop: 4, sleep: 7 };
-const divider = `+${'─'.repeat(COL.time + 2)}+${'─'.repeat(COL.feed + 2)}+${'─'.repeat(COL.poop + 2)}+${'─'.repeat(COL.sleep + 2)}+`;
-const header = `| ${pad('Time', COL.time)} | ${pad('Feed', COL.feed)} | ${pad('💩', COL.poop)} | ${pad('Sleep', COL.sleep)} |`;
+// Column widths — tuned to fit Discord's mobile code-block width
+// (~32 chars per line). Total row: 5 + 8 + 4 + 5 + 4 separators = 26.
+// Drop the +─+|│ box chrome entirely; rely on monospace alignment.
+const COL = { time: 5, feed: 8, poop: 4, sleep: 5 };
+const header = `${pad('Time', COL.time)} ${pad('Feed', COL.feed)} ${pad('💩', COL.poop)} ${pad('Sleep', COL.sleep)}`;
+const headerRule = '─'.repeat(COL.time + COL.feed + COL.poop + COL.sleep + 3);
 
 const tableRows = mergedEvents.length === 0
-  ? [`| ${pad('— no events —', COL.time + COL.feed + COL.poop + COL.sleep + 9)} |`]
+  ? ['— no events —']
   : mergedEvents.map((e) =>
-      `| ${pad(fmtTime(e.ts), COL.time)} | ${pad(e.feed, COL.feed)} | ${pad(e.poop, COL.poop)} | ${pad(e.sleep, COL.sleep)} |`,
+      `${pad(fmtTime(e.ts), COL.time)} ${pad(e.feed, COL.feed)} ${pad(e.poop, COL.poop)} ${pad(e.sleep, COL.sleep)}`,
     );
 
 const summary = events.length === 0
@@ -256,9 +277,8 @@ const heading = targetDate === today ? 'today' : targetDate === addDays(today, -
 const table =
   `\`\`\`\n` +
   `Emilio — ${heading}\n\n` +
-  `${divider}\n${header}\n${divider}\n` +
+  `${header}\n${headerRule}\n` +
   tableRows.join('\n') + '\n' +
-  `${divider}\n` +
   `\`\`\`` +
   summary;
 
