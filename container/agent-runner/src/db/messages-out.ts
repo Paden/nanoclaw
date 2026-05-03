@@ -101,6 +101,22 @@ export function countChatMessagesAfter(baselineSeq: number): number {
   return row.c;
 }
 
+export function getChatTextsAfter(baselineSeq: number): string[] {
+  const rows = getOutboundDb()
+    .prepare("SELECT content FROM messages_out WHERE seq > ? AND kind = 'chat'")
+    .all(baselineSeq) as { content: string }[];
+  return rows
+    .map((r) => {
+      try {
+        const parsed = JSON.parse(r.content) as { text?: string };
+        return typeof parsed.text === 'string' ? parsed.text : '';
+      } catch {
+        return '';
+      }
+    })
+    .filter((t) => t.length > 0);
+}
+
 export function getMessageIdBySeq(seq: number): string | null {
   const inbound = getInboundDb();
 

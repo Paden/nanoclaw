@@ -1,6 +1,6 @@
 import { findByName, getAllDestinations, type DestinationEntry } from './destinations.js';
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
-import { writeMessageOut, getMaxSeq, countChatMessagesAfter } from './db/messages-out.js';
+import { writeMessageOut, getMaxSeq, getChatTextsAfter } from './db/messages-out.js';
 import { touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
 import {
   clearContinuation,
@@ -396,6 +396,38 @@ function handleEvent(event: ProviderEvent, _routing: RoutingContext): void {
  * This preserves the simple case of one user on one channel — the agent
  * doesn't need to know about wrapping syntax at all.
  */
+/**
+ * Detect when the LLM's closing text would echo something the agent
+ * already sent via send_message in the same turn. Strips Discord
+ * markdown noise (emoji, `-# subtext`, leading/trailing punctuation,
+ * whitespace) before comparing so a chime "nini mama 💤" followed by
+ * a closing "nini mama" still matches. Falls back to substring match
+ * for partial echoes.
+ */
+function isDuplicateOfPriorSend(closing: string, priorTexts: string[]): boolean {
+  const normalize = (s: string) =>
+    s
+      .replace(/^-#\s.*$/gm, '') // strip Discord subtext lines
+      .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '')
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
+  const closingNorm = normalize(closing);
+  if (closingNorm.length === 0) return false;
+
+  for (const prior of priorTexts) {
+    const priorNorm = normalize(prior);
+    if (priorNorm.length === 0) continue;
+    // Either side fully contains the other → duplicate.
+    if (closingNorm === priorNorm) return true;
+    if (closingNorm.length <= priorNorm.length && priorNorm.includes(closingNorm)) return true;
+    if (priorNorm.length <= closingNorm.length && closingNorm.includes(priorNorm)) return true;
+  }
+  return false;
+}
+
 function dispatchResultText(text: string, routing: RoutingContext, turnBaselineSeq: number): void {
   const MESSAGE_RE = /<message\s+to="([^"]+)"\s*>([\s\S]*?)<\/message>/g;
 
@@ -427,20 +459,19 @@ function dispatchResultText(text: string, routing: RoutingContext, turnBaselineS
 
   const scratchpad = stripInternalTags(scratchpadParts.join(''));
 
-  // Suppress the implicit closing text when the agent already wrote any
-  // chat messages this turn (e.g. via send_message). The LLM's parting
-  // summary is for itself — delivering it duplicates content the agent
-  // explicitly chose to post (e.g. an Emilio webhook chime followed by
-  // Claudio echoing the same chime text). The MCP tool runs in a
-  // separate stdio subprocess, so we use the shared outbound DB as the
-  // source of truth: count chat messages with seq > turn baseline.
-  // If the agent wants follow-up content delivered, it should use
-  // another explicit send_message call.
+  // Suppress the implicit closing text only when it *duplicates* a
+  // chat message the agent already sent this turn — the actual harm
+  // (e.g. webhook chime "nini mama..." followed by Claudio echoing the
+  // same line). Distinct closing text (e.g. answering a question that
+  // was batched into the same turn as an unrelated log event) should
+  // still be delivered. The MCP tool runs in a separate stdio
+  // subprocess, so we read prior message texts from the shared
+  // outbound DB rather than tracking in-process.
   if (sent === 0 && scratchpad) {
-    const explicitChatCount = countChatMessagesAfter(turnBaselineSeq);
-    if (explicitChatCount > 0) {
+    const priorTexts = getChatTextsAfter(turnBaselineSeq);
+    if (priorTexts.length > 0 && isDuplicateOfPriorSend(scratchpad, priorTexts)) {
       log(
-        `[scratchpad] suppressed implicit closing text (${scratchpad.length} chars); ${explicitChatCount} explicit chat message(s) already sent this turn`,
+        `[scratchpad] suppressed implicit closing text (${scratchpad.length} chars) — duplicates a prior send_message this turn`,
       );
       return;
     }

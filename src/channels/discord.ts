@@ -1677,6 +1677,13 @@ export class DiscordChannel implements ChannelAdapter {
       .trim();
     if (!text) return undefined;
 
+    // Append `-# subtext` for Discord small-text caption (e.g. "Paden · 3oz · 6:15 PM"
+    // under an Emilio chime). Only added when the agent passes the dedicated
+    // `subtext` field on send_message; we don't try to detect or auto-format.
+    if (content && typeof content.subtext === 'string' && content.subtext.trim()) {
+      text = `${text}\n-# ${content.subtext.trim()}`;
+    }
+
     // Webhook persona routing
     if (content && typeof content.sender === 'string' && WEBHOOK_PERSONAS[content.sender]) {
       const persona = WEBHOOK_PERSONAS[content.sender];

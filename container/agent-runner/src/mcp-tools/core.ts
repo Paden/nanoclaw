@@ -106,6 +106,11 @@ export const sendMessage: McpToolDefinition = {
         to: { type: 'string', description: 'Destination name. Optional if you have only one destination.' },
         text: { type: 'string', description: 'Message content' },
         sender: { type: 'string', description: 'Webhook persona name (e.g. "Emilio", "Voss", "Nyx", "Zima"). Omit for Claudio.' },
+        subtext: {
+          type: 'string',
+          description:
+            'Small grey caption rendered below the main text via Discord `-# `. REQUIRED for any Emilio chime tied to a sheet log (feedings, diapers, naps) — format `<Parent> · <details> · <time>` so parents see at-a-glance who logged what. Examples: "Paden · 3oz Bottle · 6:15 PM", "Brenda · wet · 6:15 PM", "Paden · 6:15 PM · 47 min" (nap close).',
+        },
         label: { type: 'string', description: 'Label for upsert/pin tracking (e.g. "status_card", "wordle_card").' },
         pin: { type: 'boolean', description: 'Pin this message.' },
         upsert: { type: 'boolean', description: 'Edit existing labeled message instead of posting a new one.' },
@@ -122,6 +127,7 @@ export const sendMessage: McpToolDefinition = {
 
     const content: Record<string, unknown> = { text };
     if (args.sender) content.sender = args.sender as string;
+    if (args.subtext) content.subtext = args.subtext as string;
     if (args.label) content.label = args.label as string;
     if (args.pin) content.pin = true;
     if (args.upsert) content.upsert = true;
