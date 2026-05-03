@@ -1670,10 +1670,14 @@ export class DiscordChannel implements ChannelAdapter {
       text = JSON.stringify(content);
     }
 
-    // Strip <internal>...</internal> blocks and [no-reply] sentinel
+    // Strip <internal>...</internal> blocks and any standalone [no-reply]
+    // line. The sentinel is supposed to be the ENTIRE response when staying
+    // silent, but models occasionally emit it as a leading marker followed
+    // by real content. Strip it wherever it appears on its own line so the
+    // user-visible output stays clean.
     text = text
       .replace(/<internal>[\s\S]*?<\/internal>/g, '')
-      .replace(/\s*\[no-reply\]\s*$/i, '')
+      .replace(/(^|\n)\s*\[no-reply\]\s*(?=\n|$)/gi, '')
       .trim();
     if (!text) return undefined;
 
