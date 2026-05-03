@@ -14,8 +14,8 @@
  *                          "Terminal Agent".
  *   NANOCLAW_SKIP          comma-separated step names to skip
  *                          (environment|container|onecli|auth|mounts|
- *                           service|cli-agent|timezone|channel|verify|
- *                           first-chat)
+ *                           service|cli-agent|timezone|channel|
+ *                           verify|first-chat)
  *
  * Timezone is auto-detected after the CLI agent step. UTC resolves are
  * confirmed with the user, and free-text replies fall through to a
@@ -434,7 +434,11 @@ async function main(): Promise<void> {
     await runTimezoneStep();
   }
 
+  // v1 → v2 migration is handled by `bash migrate-v2.sh`, not the setup flow.
+  // Users migrating from v1 run that script before (or instead of) setup.
+
   let channelChoice: ChannelChoice = 'skip';
+
   if (!skip.has('channel')) {
     channelChoice = await askChannelChoice();
     if (channelChoice !== 'skip') {
@@ -491,14 +495,6 @@ async function main(): Promise<void> {
             6,
           ),
         );
-      } else {
-        const agentPing = res.terminal?.fields.AGENT_PING;
-        if (agentPing && agentPing !== 'ok' && agentPing !== 'skipped') {
-          notes.push(
-            "• Your assistant didn't reply to a test message. " +
-              'Check `logs/nanoclaw.log` for clues, then try `pnpm run chat hi`.',
-          );
-        }
       }
       if (!res.terminal?.fields.CONFIGURED_CHANNELS) {
         notes.push(
@@ -518,7 +514,6 @@ async function main(): Promise<void> {
         unresolved_count: notes.length,
         service_running: res.terminal?.fields.SERVICE === 'running',
         has_credentials: res.terminal?.fields.CREDENTIALS === 'configured',
-        agent_responds: res.terminal?.fields.AGENT_PING === 'ok',
       });
       await offerClaudeAssist({
         stepName: 'verify',
@@ -777,15 +772,25 @@ async function runPasteAuth(method: 'oauth' | 'api'): Promise<void> {
       message: `Paste your ${label}`,
       clearOnError: true,
       validate: (v) => {
-        if (!v || !v.trim()) return 'Required';
-        if (!v.trim().startsWith(prefix)) {
+        // Strip any internal whitespace so a line-wrapped paste that did
+        // survive into clack can still validate. The mid-token-newline
+        // case where clack only sees the first line is caught by the
+        // shape check below.
+        const cleaned = (v ?? '').replace(/\s+/g, '');
+        if (!cleaned) return 'Required';
+        if (!cleaned.startsWith(prefix)) {
           return `Should start with ${prefix}…`;
+        }
+        if (method === 'oauth' && !/^sk-ant-oat[A-Za-z0-9_-]{80,500}AA$/.test(cleaned)) {
+          return cleaned.length < 90
+            ? 'Token looks truncated — line breaks in the paste can cut it off. Widen your terminal so the token fits on one line, then paste again.'
+            : "Token shape doesn't look right (expected sk-ant-oat…AA).";
         }
         return undefined;
       },
     }),
   );
-  const token = (answer as string).trim();
+  const token = (answer as string).replace(/\s+/g, '');
 
   const res = await runQuietChild(
     'auth',
