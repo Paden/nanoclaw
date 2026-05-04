@@ -119,26 +119,17 @@ function findOpenNaps(rows) {
     .filter((r) => r.start && !r.duration);
 }
 
-// emitFollowups — after every successful sheet write, fire ONE Emilio message
-// that combines the chime + a parenthetical data subtitle, then refresh the
-// pinned status card. Two IPC messages total.
+// emitFollowups — after every successful sheet write, fire ONE Emilio chime
+// (with parenthetical data subtitle). The pinned status card was retired
+// when /emilio-day landed; parents read the day's events there instead.
+// Discord adapter still handles a `card` field if present, so a future
+// revival just needs to put the field back here.
 async function emitFollowups(deps, eventType, confirmText, opts = {}) {
-  // Chime — returned in JSON for discord.ts to post via webhook
   const state = deps.loadChimeState();
   const { text: chimeText, newState } = deps.pickChime(eventType, state, opts);
   const combined = confirmText ? `${chimeText}\n-# ${confirmText}` : chimeText;
   deps.saveChimeState(newState);
-
-  // Status card — run as subprocess, strip AGENT REF section
-  let cardText;
-  try {
-    const cardStdout = await deps.runCardScript();
-    cardText = cardStdout.split(/═══ AGENT REF/)[0].trim();
-  } catch (err) {
-    process.stderr.write(`status_card rebuild failed: ${err.message}\n`);
-  }
-
-  return { chime: combined, card: cardText || null };
+  return { chime: combined };
 }
 
 // --- Action handlers (exported for tests) ---
