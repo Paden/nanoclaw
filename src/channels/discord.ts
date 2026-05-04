@@ -408,7 +408,7 @@ export class DiscordChannel implements ChannelAdapter {
               .toJSON(),
             new SlashCommandBuilder()
               .setName('emilio-day')
-              .setDescription("Chronological event log for one day of Emilio activity (#emilio-care only)")
+              .setDescription('Chronological event log for one day of Emilio activity (#emilio-care only)')
               .addStringOption((opt) =>
                 opt
                   .setName('date')
@@ -1758,6 +1758,29 @@ export class DiscordChannel implements ChannelAdapter {
       .replace(/(^|\n)\s*\[no-reply\]\s*(?=\n|$)/gi, '')
       .trim();
     if (!text) return undefined;
+
+    // #family-fun word redaction: defense-in-depth against the model
+    // leaking today's Saga Wordle word in chat. The agent prompt already
+    // says "never reveal", but gemini ignores it on rollover days. Read
+    // wordle_state.json and replace any case-insensitive occurrence of
+    // the active word with `*****`. Best-effort: missing or unreadable
+    // state file means no redaction (we'd rather post than block).
+    if (DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_family-fun') {
+      try {
+        const statePath = path.resolve(process.cwd(), 'groups', 'discord_family-fun', 'wordle_state.json');
+        const state = JSON.parse(fs.readFileSync(statePath, 'utf8')) as { word?: string; resolved?: boolean };
+        const word = (state?.word || '').trim();
+        if (word.length === 5 && state.resolved !== true) {
+          const re = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+          if (re.test(text)) {
+            log.warn('Redacted Saga Wordle word from outgoing message', { platformId });
+            text = text.replace(re, '`*****`');
+          }
+        }
+      } catch {
+        /* state file missing or unreadable — let the message through */
+      }
+    }
 
     // Append `-# subtext` for Discord small-text caption (e.g. "Paden · 3oz · 6:15 PM"
     // under an Emilio chime). Only added when the agent passes the dedicated
