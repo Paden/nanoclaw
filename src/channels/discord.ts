@@ -302,6 +302,10 @@ export class DiscordChannel implements ChannelAdapter {
           await this.handleEmilioDayCommand(interaction);
           return;
         }
+        if (interaction.commandName === 'pet-status') {
+          await this.handlePetStatusCommand(interaction);
+          return;
+        }
         if (interaction.commandName === 'qotd') {
           await this.handleQotdCommand(interaction);
           return;
@@ -415,6 +419,10 @@ export class DiscordChannel implements ChannelAdapter {
                   .setDescription('Day to show. "today" (default), "yesterday", or YYYY-MM-DD.')
                   .setRequired(false),
               )
+              .toJSON(),
+            new SlashCommandBuilder()
+              .setName('pet-status')
+              .setDescription("Show every Silverthorne pet's stage, HP, and XP-to-next-evolution (#silverthorne only)")
               .toJSON(),
             new SlashCommandBuilder()
               .setName('qotd')
@@ -1012,6 +1020,63 @@ export class DiscordChannel implements ChannelAdapter {
 
     await interaction.editReply(result.table);
     log.info('/emilio-day slash command ran', { date: dateOpt });
+  }
+
+  // --- /pet-status ---
+
+  private async handlePetStatusCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+      log.warn('Failed to defer /pet-status interaction', { err });
+      return;
+    }
+
+    const channelFolder = DiscordChannel.CHANNEL_FOLDERS[interaction.channelId];
+    if (!channelFolder || channelFolder !== 'discord_silverthorne') {
+      await interaction.editReply('⚠️ `/pet-status` is only available in #silverthorne.');
+      return;
+    }
+
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'pet-status-slash.mjs');
+    let stdout: string;
+    try {
+      const res = await execFileAsync('node', [scriptPath], {
+        timeout: 15_000,
+        maxBuffer: 1_000_000,
+        env: {
+          ...process.env,
+          GOOGLE_OAUTH_CREDENTIALS:
+            process.env.GOOGLE_OAUTH_CREDENTIALS ||
+            path.resolve(process.cwd(), 'data', 'google-calendar', 'gcp-oauth.keys.json'),
+          GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+            process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
+            path.resolve(os.homedir(), '.config', 'google-calendar-mcp', 'tokens.json'),
+        },
+      });
+      stdout = res.stdout;
+    } catch (err) {
+      const e = err as { message?: string };
+      log.error('/pet-status script failed', { err: e.message });
+      await interaction.editReply(`⚠️ Could not load pet status: ${e.message || 'unknown error'}`);
+      return;
+    }
+
+    let result: { ok?: boolean; table?: string; error?: string };
+    try {
+      result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
+    } catch {
+      await interaction.editReply('⚠️ Pet status returned unparseable output.');
+      return;
+    }
+
+    if (!result.ok || !result.table) {
+      await interaction.editReply(`⚠️ ${result.error || 'Unknown error'}`);
+      return;
+    }
+
+    await interaction.editReply(result.table);
+    log.info('/pet-status slash command ran');
   }
 
   // --- /qotd ---
