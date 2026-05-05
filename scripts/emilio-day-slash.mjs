@@ -246,10 +246,28 @@ const totalOz = events.reduce((s, e) => {
   const m = e.feed.match(/^([\d.]+)oz/);
   return s + (m ? parseFloat(m[1]) : 0);
 }, 0);
-const totalSleep = events.reduce((s, e) => {
-  const m = e.sleep.match(/^(\d+)m/);
-  return s + (m ? parseInt(m[1]) : 0);
-}, 0);
+// Total sleep: sum the overlap of every nap's [start, start+duration)
+// interval with this day's [midnight, nextMidnight) window — so naps
+// that span midnight contribute the right minute-count to each day,
+// not 100% to the start day. Naps that started before midnight but
+// extended into today are intentionally NOT shown as timeline rows
+// (the timeline filters by start time); the total reflects them
+// regardless.
+let totalSleep = 0;
+for (const r of sleeps) {
+  const start = parseTime(r['Start time'] || r['Start'] || r['Feed time']);
+  if (!start) continue;
+  const dur = parseFloat(r['Duration (minutes)'] || r['Duration'] || '0');
+  if (dur <= 0) continue;
+  const napStart = start.ts;
+  const napEnd = napStart + dur * 60_000;
+  const overlapStart = Math.max(napStart, midnight);
+  const overlapEnd = Math.min(napEnd, nextMidnight);
+  if (overlapEnd > overlapStart) {
+    totalSleep += (overlapEnd - overlapStart) / 60_000;
+  }
+}
+totalSleep = Math.round(totalSleep);
 const feedCount = events.filter((e) => e.feed).length;
 const poopCount = events.filter((e) => e.poop && e.poop !== 'wet').length;
 const sleepHours = Math.floor(totalSleep / 60);
