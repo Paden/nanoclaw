@@ -142,13 +142,24 @@ const rows = dates.map((date) => {
       (r['Diaper Status'] || '').toLowerCase().includes('poop');
   });
 
-  // Sleep: sum durations of naps that started in this day window
+  // Sleep: sum the overlap of each nap's [start, start+duration) with this
+  // day's [midnight, nextMidnight) window. A nap that crosses midnight
+  // gets split — e.g. a 90-min nap starting at 23:30 contributes 30 min
+  // to that day and 60 min to the next, instead of all 90 min landing on
+  // the start day.
   let sleepMin = 0;
   for (const r of sleeps) {
     const start = parseTime(r['Start time'] || r['Start'] || r['Feed time']);
-    if (!start || start.ts < midnight || start.ts >= nextMidnight) continue;
+    if (!start) continue;
     const dur = parseFloat(r['Duration (minutes)'] || r['Duration'] || '0');
-    if (dur > 0) sleepMin += dur;
+    if (dur <= 0) continue;
+    const napStart = start.ts;
+    const napEnd = napStart + dur * 60_000;
+    const overlapStart = Math.max(napStart, midnight);
+    const overlapEnd = Math.min(napEnd, nextMidnight);
+    if (overlapEnd > overlapStart) {
+      sleepMin += (overlapEnd - overlapStart) / 60_000;
+    }
   }
 
   const ozStr = dayFeeds.length > 0
