@@ -510,13 +510,11 @@ async function runSubmit(userId, value) {
   const category = categoriesSeen.size === 1 ? [...categoriesSeen][0] : 'default';
   const voice = pickPetLine(petName, category);
 
-  // Event-driven status_card rebuild — Phase 4.1 of nag-cron migration.
-  // After every successful submit, rebuild the pinned card and emit an IPC
-  // edit_message. Don't fail the slash if either hop blows up.
-  const hookResult = await runChoreCardHook({ token, results });
-  if (hookResult.error) {
-    process.stderr.write(`status_card rebuild failed: ${hookResult.error}\n`);
-  }
+  // Pinned status card auto-rebuild was retired — see docs in
+  // runChoreCardHook below. Parents pull /chore-status or /pet-status
+  // on demand instead. The function stays exported for any caller that
+  // wants to opt in (and for the test suite), it's just no longer
+  // invoked from the per-chore submit path.
 
   emit({
     ok: true,
@@ -528,7 +526,6 @@ async function runSubmit(userId, value) {
     totalXp,
     awards,
     chores: results,
-    statusCardUpdated: hookResult.updated,
   });
 }
 
