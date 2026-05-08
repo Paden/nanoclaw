@@ -145,29 +145,15 @@ function parseTime(val) {
 const midnight = chicagoMidnightTs(targetDate);
 const nextMidnight = chicagoMidnightTs(addDays(targetDate, 1));
 
-// Compact source abbreviation: "Bottle" → "B", "Formula" → "F",
-// "Breast" → "Br", anything else → first letter uppercased. Saves
-// ~6 chars per row vs the full word — important for fitting Discord's
-// mobile code-block width.
-function abbrevSrc(src) {
-  if (!src) return '';
-  const s = src.trim().toLowerCase();
-  if (s.startsWith('bottle')) return 'B';
-  if (s.startsWith('formula')) return 'F';
-  if (s.startsWith('breast')) return 'Br';
-  return src.trim()[0].toUpperCase();
-}
-
 const events = [];
 
 for (const r of feeds) {
   const t = parseTime(r['Feed time']);
   if (!t || t.ts < midnight || t.ts >= nextMidnight) continue;
   const oz = parseFloat(r['Amount (oz)'] || '0') || 0;
-  const src = abbrevSrc(r['Source'] || '');
   events.push({
     ts: t.ts,
-    feed: oz > 0 ? `${oz % 1 === 0 ? oz.toFixed(0) : oz.toFixed(1)}oz${src ? ' ' + src : ''}` : '',
+    feed: oz > 0 ? `${oz % 1 === 0 ? oz.toFixed(0) : oz.toFixed(1)}oz` : '',
     poop: '',
     sleep: '',
   });
@@ -281,7 +267,7 @@ const sleepMins = totalSleep % 60;
 //    1+1+ 5 +1+1+ 8 +1+1+ 4 +1+1+ 2 +1 = 28? let me recount properly.
 //   chrome breakdown: 5 vertical bars + 4 spaces left + 4 spaces right = 13
 //   content: 5 + 8 + 4 + 2 = 19  → total 32 (within mobile cap).
-const COL = { time: 5, feed: 8, sleep: 5, poop: 2 };
+const COL = { time: 5, feed: 5, sleep: 5, poop: 2 };
 const divider = `+${'─'.repeat(COL.time + 2)}+${'─'.repeat(COL.feed + 2)}+${'─'.repeat(COL.sleep + 2)}+${'─'.repeat(COL.poop + 2)}+`;
 const header = `| ${pad('Time', COL.time)} | ${pad('Feed', COL.feed)} | ${pad('Sleep', COL.sleep)} | 💩 |`;
 
