@@ -162,15 +162,15 @@ const rows = dates.map((date) => {
     }
   }
 
-  const ozStr = dayFeeds.length > 0
-    ? `${Math.round(totalOz)}oz/${dayFeeds.length}`
-    : '—';
+  const ozStr = dayFeeds.length > 0 ? `${Math.round(totalOz)}/${dayFeeds.length}` : '—';
+  // Sleep total rounded to whole hours; matches /emilio-day's terse style.
+  const sleepStr = sleepMin > 0 ? `${Math.round(sleepMin / 60)}h` : '—';
 
   return {
     day: dayLabel(date),
     isToday: date === today,
     feeds: ozStr,
-    sleep: sleepMin > 0 ? hhmm(sleepMin) : '—',
+    sleep: sleepStr,
     poop: hadPoop ? '💩' : '  ',
   };
 });
@@ -181,9 +181,12 @@ function pad(str, len) {
   return str.length >= len ? str : str + ' '.repeat(len - str.length);
 }
 
-const COL = { day: 5, feeds: 7, sleep: 5 };
+// Match /emilio-day's all-emoji header style. With "oz" dropped from
+// feed cells and sleep rounded to whole hours, columns shrink: feeds
+// 7→5 ("32/12" max) and sleep 5→3 ("13h" max).
+const COL = { day: 5, feeds: 5, sleep: 3 };
 const divider = `+${'─'.repeat(COL.day + 2)}+${'─'.repeat(COL.feeds + 2)}+${'─'.repeat(COL.sleep + 2)}+${'─'.repeat(4)}+`;
-const header  = `| ${pad('Date', COL.day)} | ${pad('Feeds', COL.feeds)} | ${pad('Sleep', COL.sleep)} | 💩 |`;
+const header  = `| ${pad('📅', COL.day)} | ${pad('🍼', COL.feeds)} | ${pad('😴', COL.sleep)} | 💩 |`;
 
 const tableRows = rows.map((r) =>
   `| ${pad(r.day, COL.day)} | ${pad(r.feeds, COL.feeds)} | ${pad(r.sleep, COL.sleep)} | ${r.poop} |`,
