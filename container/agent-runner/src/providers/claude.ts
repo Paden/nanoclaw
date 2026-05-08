@@ -227,11 +227,19 @@ function createPreCompactHook(assistantName?: string): HookCallback {
  * Claude Code auto-compacts context at this window (tokens). Kept here so
  * the generic bootstrap doesn't need to know about Claude-specific env vars.
  *
- * Operator override: set CLAUDE_CODE_AUTO_COMPACT_WINDOW in the host env to
- * raise or lower the threshold without editing source — useful when running
- * with a 1M-context model variant or when emergency-tuning a deployment.
+ * Lowered from 165000 to 50000 because we're routing through Ollama Pro
+ * Cloud, where Anthropic's prompt-caching markers aren't honored — every
+ * turn re-bills the FULL prompt. With the old 165K window, sessions sat
+ * just under the cap forever, sending ~97K input tokens per chore turn.
+ * 50K trades a slightly noisier compaction cadence for a 2x reduction in
+ * per-turn token cost.
+ *
+ * Operator override: set CLAUDE_CODE_AUTO_COMPACT_WINDOW in the host env
+ * to raise or lower the threshold without editing source — useful when
+ * running with a 1M-context model variant or against the actual Anthropic
+ * API where caching is honored.
  */
-const CLAUDE_CODE_AUTO_COMPACT_WINDOW = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '165000';
+const CLAUDE_CODE_AUTO_COMPACT_WINDOW = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '50000';
 
 /**
  * Stale-session detection. Matches Claude Code's error text when a
