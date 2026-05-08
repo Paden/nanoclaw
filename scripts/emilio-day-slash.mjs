@@ -267,9 +267,9 @@ const sleepMins = totalSleep % 60;
 //    1+1+ 5 +1+1+ 8 +1+1+ 4 +1+1+ 2 +1 = 28? let me recount properly.
 //   chrome breakdown: 5 vertical bars + 4 spaces left + 4 spaces right = 13
 //   content: 5 + 8 + 4 + 2 = 19  → total 32 (within mobile cap).
-const COL = { time: 5, feed: 5, sleep: 5, poop: 2 };
+const COL = { time: 5, feed: 5, sleep: 4, poop: 2 };
 const divider = `+${'─'.repeat(COL.time + 2)}+${'─'.repeat(COL.feed + 2)}+${'─'.repeat(COL.sleep + 2)}+${'─'.repeat(COL.poop + 2)}+`;
-const header = `| ${pad('Time', COL.time)} | ${pad('Feed', COL.feed)} | ${pad('Sleep', COL.sleep)} | 💩 |`;
+const header = `| ${pad('Time', COL.time)} | ${pad('Feed', COL.feed)} | ${pad('😴', COL.sleep)} | 💩 |`;
 
 // Map textual poop label → 2-char emoji cell. Empty rows get spaces so
 // the column stays aligned with the header.
