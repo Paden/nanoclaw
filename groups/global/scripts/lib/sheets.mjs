@@ -81,14 +81,38 @@ export async function readRange(sheetId, range, { token, fetchFn = fetch } = {})
   return data.values || [];
 }
 
+/**
+ * Normalize any string value that looks like an unpadded `YYYY-MM-DD H:M[:S]`
+ * timestamp into the canonical `YYYY-MM-DD HH:MM:SS` form. Other strings
+ * (and non-strings) pass through untouched.
+ *
+ * Sheets API USER_ENTERED parses datetimes and re-renders them using the
+ * cell's display format, which silently strips leading zeros on hours for
+ * some Emilio-tracking columns. Pre-padding the input string forces the
+ * canonical form regardless of cell format.
+ */
+export function normalizeTimestamp(v) {
+  if (typeof v !== 'string') return v;
+  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/);
+  if (!m) return v;
+  const [, y, mo, d, h, mi, se] = m;
+  const pad = (n) => String(parseInt(n, 10)).padStart(2, '0');
+  return `${y}-${mo}-${d} ${pad(h)}:${pad(mi)}:${pad(se || '0')}`;
+}
+
+function normalizeValues(values) {
+  if (!Array.isArray(values)) return values;
+  return values.map((row) => Array.isArray(row) ? row.map(normalizeTimestamp) : row);
+}
+
 export async function appendRows(sheetId, range, values, { token, fetchFn = fetch } = {}) {
   if (!token) token = await getAccessToken({ fetchFn });
   const url = `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`;
-  return request('POST', url, { values }, token, fetchFn);
+  return request('POST', url, { values: normalizeValues(values) }, token, fetchFn);
 }
 
 export async function updateRange(sheetId, range, values, { token, fetchFn = fetch } = {}) {
   if (!token) token = await getAccessToken({ fetchFn });
   const url = `${SHEETS_BASE}/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
-  return request('PUT', url, { values }, token, fetchFn);
+  return request('PUT', url, { values: normalizeValues(values) }, token, fetchFn);
 }
