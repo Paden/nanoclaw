@@ -1,9 +1,13 @@
 # NanoClaw Migration Guide
 
-Generated: 2026-05-01
-Base: a81e1651b5e48c9194162ffa2c50a22283d5ecd3
+Generated: 2026-05-01, updated 2026-05-13
+Base (original): a81e1651b5e48c9194162ffa2c50a22283d5ecd3
+Base (current): 953264e0d333b8a457ab64c36d0e01a232435a72
 HEAD at generation: e2248373e86bca2f1e730e4d4d4ca375bcefe69b
-Upstream target: 8c962d3f73edcb627c3043b5fe7595d7d8755422 (v2.0.23)
+HEAD at latest update: daa4ec2
+Upstream target: b779a0b (v2.0.60)
+
+**Delta since 2026-05-01:** see [08-deltas-2026-05-13.md](08-deltas-2026-05-13.md). Apply that file after working through sections 01–07; it overrides earlier guidance where they conflict.
 
 ## Migration Plan
 
@@ -64,3 +68,4 @@ None — only one code skill (Discord) was applied.
 - [05-scripts.md](05-scripts.md) — Host scripts (copy wholesale)
 - [06-discord-slash.md](06-discord-slash.md) — Discord slash commands added post-skill
 - [07-package.md](07-package.md) — package.json additions
+- [08-deltas-2026-05-13.md](08-deltas-2026-05-13.md) — **Apply this last.** Changes between 2026-05-01 and 2026-05-13: IPC writer rewrite, pinned cards retired, saga removed, cheat/jury removed, /pet-status + /emilio-day commands, container ceiling tuning, .gitignore updates.
