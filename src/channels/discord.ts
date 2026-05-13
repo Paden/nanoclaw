@@ -290,10 +290,6 @@ export class DiscordChannel implements ChannelAdapter {
           await this.handleWordleStatusCommand(interaction);
           return;
         }
-        if (interaction.commandName === 'saga') {
-          await this.handleSagaCommand(interaction);
-          return;
-        }
         if (interaction.commandName === 'emilio-week') {
           await this.handleEmilioWeekCommand(interaction);
           return;
@@ -350,10 +346,6 @@ export class DiscordChannel implements ChannelAdapter {
         }
       }
       if (interaction.isButton()) {
-        if (interaction.customId.startsWith('saga_nav:')) {
-          await this.handleSagaNav(interaction);
-          return;
-        }
         if (interaction.customId.startsWith('emilio_day:')) {
           await this.handleEmilioHistoryNav(interaction);
           return;
@@ -401,10 +393,6 @@ export class DiscordChannel implements ChannelAdapter {
             new SlashCommandBuilder()
               .setName('wordle-status')
               .setDescription("Show today's Wordle progress (#family-fun only)")
-              .toJSON(),
-            new SlashCommandBuilder()
-              .setName('saga')
-              .setDescription('Read the full Saga Wordle story so far (#family-fun only)')
               .toJSON(),
             new SlashCommandBuilder()
               .setName('emilio-week')
@@ -740,88 +728,6 @@ export class DiscordChannel implements ChannelAdapter {
       guesses: result.history?.length,
       solved: result.solved,
     });
-  }
-
-  // --- /saga ---
-
-  private loadSagaChapters(): Array<{ day: number; date: string; word: string; text: string }> {
-    const sagaPath = path.resolve(process.cwd(), 'groups', 'discord_family-fun', 'saga_state.json');
-    const saga = JSON.parse(fs.readFileSync(sagaPath, 'utf8')) as {
-      chapters?: Array<{ day: number; date: string; word: string; text: string }>;
-    };
-    return saga.chapters ?? [];
-  }
-
-  private buildSagaReply(
-    chapters: Array<{ day: number; date: string; word: string; text: string }>,
-    idx: number,
-  ): { content: string; components: ActionRowBuilder<ButtonBuilder>[] } {
-    const ch = chapters[idx];
-    const content = `**Day ${ch.day} of ${chapters.length} — ${ch.date} — ${ch.word.toUpperCase()}**\n\n${ch.text}`;
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`saga_nav:${idx - 1}`)
-        .setLabel('◀ Prev')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(idx === 0),
-      new ButtonBuilder()
-        .setCustomId(`saga_nav:${idx + 1}`)
-        .setLabel('Next ▶')
-        .setStyle(ButtonStyle.Secondary)
-        .setDisabled(idx === chapters.length - 1),
-    );
-    return { content, components: [row] };
-  }
-
-  private async handleSagaCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
-    try {
-      await interaction.deferReply({ ephemeral: true });
-    } catch (err) {
-      log.warn('Failed to defer /saga interaction', { err });
-      return;
-    }
-
-    const channelFolder = DiscordChannel.CHANNEL_FOLDERS[interaction.channelId];
-    if (!channelFolder || channelFolder !== 'discord_family-fun') {
-      await interaction.editReply('⚠️ `/saga` is only available in #family-fun.');
-      return;
-    }
-
-    let chapters: Array<{ day: number; date: string; word: string; text: string }>;
-    try {
-      chapters = this.loadSagaChapters();
-    } catch (err) {
-      log.error('Failed to read saga_state.json', { err });
-      await interaction.editReply('⚠️ Could not read saga state.');
-      return;
-    }
-
-    if (chapters.length === 0) {
-      await interaction.editReply('No saga chapters yet.');
-      return;
-    }
-
-    await interaction.editReply(this.buildSagaReply(chapters, 0));
-    log.info('/saga slash command ran', { chapters: chapters.length });
-  }
-
-  private async handleSagaNav(interaction: ButtonInteraction): Promise<void> {
-    const idx = parseInt(interaction.customId.split(':')[1], 10);
-    let chapters: Array<{ day: number; date: string; word: string; text: string }>;
-    try {
-      chapters = this.loadSagaChapters();
-    } catch (err) {
-      log.error('Failed to read saga_state.json for nav', { err });
-      await interaction.update({ content: '⚠️ Could not read saga state.', components: [] });
-      return;
-    }
-
-    if (isNaN(idx) || idx < 0 || idx >= chapters.length) {
-      await interaction.update({ content: '⚠️ Invalid chapter.', components: [] });
-      return;
-    }
-
-    await interaction.update(this.buildSagaReply(chapters, idx));
   }
 
   // --- /emilio history nav ---
@@ -1761,6 +1667,33 @@ export class DiscordChannel implements ChannelAdapter {
 
   async deliver(platformId: string, _threadId: string | null, message: OutboundMessage): Promise<string | undefined> {
     const content = message.content as Record<string, unknown> | null;
+
+    // Unpin operation: {operation: "unpin_message", label} unpins the pinned
+    // message stored under that label in message_labels.json and clears the
+    // label entry. Used to retire pinned cards.
+    if (content && content.operation === 'unpin_message') {
+      const labelName = typeof content.label === 'string' ? content.label : null;
+      const groupFolder = DiscordChannel.CHANNEL_FOLDERS[platformId];
+      if (!labelName || !groupFolder || !this.client) return undefined;
+      const labelsPath = path.resolve(process.cwd(), 'data', 'sessions', groupFolder, 'message_labels.json');
+      try {
+        const labels = JSON.parse(fs.readFileSync(labelsPath, 'utf8')) as Record<string, string | { id: string }>;
+        const raw = labels[labelName];
+        const pinnedId = typeof raw === 'string' ? raw : raw?.id;
+        if (pinnedId) {
+          const ch = await this.client.channels.fetch(platformId);
+          if (ch && 'messages' in ch) {
+            const msg = await (ch as TextChannel).messages.fetch(pinnedId).catch(() => null);
+            if (msg) await msg.unpin().catch(() => undefined);
+          }
+          delete labels[labelName];
+          fs.writeFileSync(labelsPath, JSON.stringify(labels, null, 2));
+        }
+      } catch (err) {
+        log.warn('Failed to unpin labeled message', { platformId, labelName, err });
+      }
+      return undefined;
+    }
 
     // Reaction operation: add_reaction MCP tool emits a chat-kind row with
     // {operation: "reaction", messageId, emoji}. Translate to a Discord

@@ -100,11 +100,9 @@ function loadProcessed() {
 }
 
 // runPandaHook — after a /qotd answer is recorded, gate-check the sheet state and:
-//   - if only one partner has answered (or partial state changed) →
-//     drop a templated panda_heart edit_message IPC
 //   - if both have answered and the current Q hasn't been processed yet →
-//     drop a schedule_task IPC for the agent to author the full reveal
-//   - if no change → noop
+//     fire the reveal task
+//   - otherwise noop (partners check open Qs via /qotd-status)
 //
 // Returns a structured result for tests / logging. Never throws — wraps every
 // failure in an { ok: false, reason } object so the caller's primary
@@ -113,12 +111,7 @@ export async function runPandaHook({
   token,
   // Injectable deps for tests:
   pollFn,
-  cardBuilder,
-  writeIpcMessageFn,
   writeIpcTaskFn,
-  stateLoader,
-  processedLoader,
-  questionsLoader,
   gameStatePath = STATE_PATH,
   processedPath = PROCESSED_PATH,
   fingerprintPath = FINGERPRINT_PATH,
@@ -127,27 +120,16 @@ export async function runPandaHook({
   groupFolder = PARENTS_GROUP,
 } = {}) {
   // Resolve injectable deps — pull from sibling group scripts on first call.
-  if (!pollFn || !cardBuilder) {
+  if (!pollFn) {
     const pollMod = await import(
       path.join(ROOT, 'groups', groupFolder, 'scripts', 'panda_poll.mjs')
     );
-    const cardMod = await import(
-      path.join(ROOT, 'groups', groupFolder, 'scripts', 'panda_card.mjs')
-    );
-    pollFn = pollFn || pollMod.pollPandaState;
-    cardBuilder = cardBuilder || cardMod.buildPandaPartialCard;
-    if (!writeIpcMessageFn || !writeIpcTaskFn) {
-      // Compiled-only path: tsc emits to dist/. The slash command runs as a
-      // subprocess after `npm run build`, so this matches deployed shape.
+    pollFn = pollMod.pollPandaState;
+    if (!writeIpcTaskFn) {
       const ipcMod = await import(path.join(ROOT, 'dist', 'ipc-writer.js'));
-      writeIpcMessageFn = writeIpcMessageFn || ipcMod.writeIpcMessage;
-      writeIpcTaskFn = writeIpcTaskFn || ipcMod.writeIpcTask;
+      writeIpcTaskFn = ipcMod.writeIpcTask;
     }
   }
-
-  const loadStateFn = stateLoader || loadState;
-  const loadProcFn = processedLoader || loadProcessed;
-  void questionsLoader; // reserved for future use
 
   let poll;
   try {
@@ -187,32 +169,9 @@ export async function runPandaHook({
     }
   }
 
-  // Partial state — render and ship the card directly, no agent.
-  const state = loadStateFn();
-  const processed = loadProcFn();
-  const cardText = cardBuilder({
-    qNum: poll.data.question_number,
-    question: poll.data.question,
-    padenAnswered: poll.data.paden_answered,
-    brendaAnswered: poll.data.brenda_answered,
-    day: poll.data.day,
-    phase: state?.phase,
-    loveMapCount: (processed.processed_days || []).length,
-    lastRevealAt: state?.last_revealed_at,
-  });
-  try {
-    await writeIpcMessageFn(groupFolder, {
-      type: 'edit_message',
-      chatJid: channelJid,
-      label: 'panda_heart',
-      pin: true,
-      upsert: true,
-      text: cardText,
-    });
-    return { ok: true, action: 'updated_card', day: poll.data.day };
-  } catch (err) {
-    return { ok: false, reason: 'write_card_failed', error: String(err.message || err) };
-  }
+  // Partial state — one partner has answered. Partners can use
+  // `/qotd-status` to see open questions.
+  return { ok: true, action: 'partial_noop', day: poll.data.day };
 }
 
 // Event-driven panda hook: poll the sheet state and either update the

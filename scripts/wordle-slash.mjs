@@ -69,33 +69,9 @@ async function appendSubmission({ player, userId, guess, gameChannel, token }) {
   );
 }
 
-// Read the family-fun saga state to learn the current day number and genre.
-// Falls back gracefully — if the file is missing or corrupt, return defaults
-// so the card still renders.
-function readSagaState(groupFolder) {
-  try {
-    const sagaPath = path.join(ROOT, 'groups', groupFolder, 'saga_state.json');
-    const raw = JSON.parse(fs.readFileSync(sagaPath, 'utf8'));
-    return { day: raw.day ?? null, genre: raw.genre ?? null };
-  } catch {
-    return { day: null, genre: null };
-  }
-}
-
-function readLeaderboard(groupFolder) {
-  try {
-    const lbPath = path.join(ROOT, 'groups', groupFolder, 'wordle_leaderboard.json');
-    return JSON.parse(fs.readFileSync(lbPath, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
 // runWordleHook — after a guess is recorded, gate-check the sheet state and:
-//   - if state changed mid-game, drop a templated wordle_card update IPC
-//   - if all 3 players are now done and reveal hasn't fired, drop a
-//     schedule_task IPC for the agent to author the saga reveal
-//   - if no change, do nothing
+//   - if all 3 players are now done and reveal hasn't fired, fire the reveal task
+//   - otherwise no-op (players check live progress via /wordle-status)
 //
 // Returns a structured result for tests / logging. Never throws — wraps every
 // failure in an { ok: false, reason } object so the caller's primary
@@ -105,11 +81,7 @@ export async function runWordleHook({
   token,
   // Injectable deps for tests:
   pollFn,
-  cardBuilder,
-  writeIpcMessageFn,
   writeIpcTaskFn,
-  sagaStateLoader,
-  leaderboardLoader,
   pollerStatePath,
   sheetId = PORTILLO_GAMES_SHEET,
   channelJid = SAGA_WORDLE_CHANNEL,
@@ -117,29 +89,20 @@ export async function runWordleHook({
   if (!groupFolder) return { ok: false, reason: 'missing_group_folder' };
 
   // Resolve injectable deps — pull from sibling group scripts on first call.
-  if (!pollFn || !cardBuilder) {
+  if (!pollFn) {
     const pollMod = await import(
       path.join(ROOT, 'groups', groupFolder, 'scripts', 'wordle_poll.mjs')
     );
-    const cardMod = await import(
-      path.join(ROOT, 'groups', groupFolder, 'scripts', 'wordle_card.mjs')
-    );
     pollFn = pollFn || pollMod.pollWordleState;
-    cardBuilder = cardBuilder || cardMod.buildWordleCardText;
-    if (!writeIpcMessageFn || !writeIpcTaskFn) {
-      // Compiled-only path: tsc emits to dist/. The slash command runs as a
-      // subprocess after `npm run build`, so this matches deployed shape.
+    if (!writeIpcTaskFn) {
       const ipcMod = await import(path.join(ROOT, 'dist', 'ipc-writer.js'));
-      writeIpcMessageFn = writeIpcMessageFn || ipcMod.writeIpcMessage;
-      writeIpcTaskFn = writeIpcTaskFn || ipcMod.writeIpcTask;
+      writeIpcTaskFn = ipcMod.writeIpcTask;
     }
   }
 
   const statePath =
     pollerStatePath ||
     path.join(ROOT, 'groups', groupFolder, 'wordle_poller_state.json');
-  const loadSaga = sagaStateLoader || (() => readSagaState(groupFolder));
-  const loadLeaderboard = leaderboardLoader || (() => readLeaderboard(groupFolder));
 
   let poll;
   try {
@@ -156,8 +119,7 @@ export async function runWordleHook({
     return { ok: true, action: 'noop', reason: poll?.reason };
   }
 
-  const { needs_resolve: needsResolve, summary, today } = poll.data;
-  const { day, genre } = loadSaga();
+  const { needs_resolve: needsResolve, today } = poll.data;
 
   if (needsResolve) {
     // All three players done — fire the agent to author the saga reveal.
@@ -178,28 +140,9 @@ export async function runWordleHook({
     }
   }
 
-  // Mid-game state change — update the pinned card directly, no agent.
-  const leaderboard = loadLeaderboard();
-  const cardText = cardBuilder({
-    summary,
-    day,
-    genre,
-    leaderboard,
-    dateStr: today,
-  });
-  try {
-    await writeIpcMessageFn(groupFolder, {
-      type: 'message',
-      chatJid: channelJid,
-      label: 'wordle_card',
-      pin: true,
-      upsert: true,
-      text: cardText,
-    });
-    return { ok: true, action: 'updated_card', today };
-  } catch (err) {
-    return { ok: false, reason: 'write_card_failed', error: String(err.message || err) };
-  }
+  // Mid-game state change — no pinned card to refresh. Players use
+  // /wordle-status to see live progress.
+  return { ok: true, action: 'mid_game_noop', today };
 }
 
 async function main() {

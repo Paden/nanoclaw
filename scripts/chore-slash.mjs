@@ -510,11 +510,7 @@ async function runSubmit(userId, value) {
   const category = categoriesSeen.size === 1 ? [...categoriesSeen][0] : 'default';
   const voice = pickPetLine(petName, category);
 
-  // Pinned status card auto-rebuild was retired — see docs in
-  // runChoreCardHook below. Parents pull /chore-status or /pet-status
-  // on demand instead. The function stays exported for any caller that
-  // wants to opt in (and for the test suite), it's just no longer
-  // invoked from the per-chore submit path.
+  // Status card rebuild retired — parents use /chore-status / /pet-status.
 
   emit({
     ok: true,
@@ -527,56 +523,6 @@ async function runSubmit(userId, value) {
     awards,
     chores: results,
   });
-}
-
-// Rebuild the silverthorne status_card and post via IPC edit_message. Pure
-// of side effects on the slash response — every failure is captured into the
-// returned shape so the caller can decide how to log.
-//
-// Returns:
-//   { skipped: 'no_newly_done' }              when no chore was newly logged
-//   { updated: true }                         on success
-//   { updated: false, error: <string> }       on any failure
-//
-// Injectable deps for tests:
-//   buildStatusCardFn({ token })  -> { discord, ... }
-//   writeIpcMessageFn(group, msg, opts) -> any
-export async function runChoreCardHook({
-  token,
-  results,
-  buildStatusCardFn,
-  writeIpcMessageFn,
-} = {}) {
-  const newlyDone = (results || []).some((r) => r.xp && !r.skipped);
-  if (!newlyDone) return { skipped: 'no_newly_done' };
-
-  try {
-    if (!buildStatusCardFn) {
-      const mod = await import(
-        path.join(ROOT, 'groups', 'discord_silverthorne', 'build_status_card.mjs')
-      );
-      buildStatusCardFn = mod.buildStatusCard;
-    }
-    if (!writeIpcMessageFn) {
-      const ipcMod = await import(path.join(ROOT, 'dist', 'ipc-writer.js'));
-      writeIpcMessageFn = ipcMod.writeIpcMessage;
-    }
-
-    const { discord } = await buildStatusCardFn({ token });
-    await writeIpcMessageFn(
-      'discord_silverthorne',
-      {
-        type: 'edit_message',
-        chatJid: 'dc:1490895684789075968',
-        label: 'status_card',
-        text: discord,
-      },
-      { rootDir: ROOT },
-    );
-    return { updated: true };
-  } catch (err) {
-    return { updated: false, error: String(err.message || err) };
-  }
 }
 
 // --- main ---

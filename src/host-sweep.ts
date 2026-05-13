@@ -50,8 +50,10 @@ import type { Session } from './types.js';
 const SWEEP_INTERVAL_MS = 60_000;
 // Absolute idle ceiling for a running container. If the heartbeat file hasn't
 // been touched in this long, the container is either stuck or doing genuinely
-// nothing — kill and restart on the next inbound.
-export const ABSOLUTE_CEILING_MS = 30 * 60 * 1000;
+// nothing — kill and restart on the next inbound. Override via
+// CONTAINER_TIMEOUT env var (ms). 90 min default — reduces cold-start churn
+// for groups that wake hourly while still recycling daily.
+export const ABSOLUTE_CEILING_MS = parseInt(process.env.CONTAINER_TIMEOUT || '5400000', 10);
 // Stuck tolerance window applied per 'processing' claim — "did we see any
 // signs of life since this message was claimed?"
 export const CLAIM_STUCK_MS = 60 * 1000;
@@ -230,7 +232,10 @@ function enforceRunningContainerSla(
   if (decision.action === 'ok') return;
 
   if (decision.action === 'kill-ceiling') {
-    log.warn('Killing container past absolute ceiling', {
+    // Normal idle recycling, not an error — logged at INFO so it doesn't
+    // clutter error.log. Zombie/stuck containers fall into the same path
+    // but the upstream symptoms surface elsewhere.
+    log.info('Recycling idle container past absolute ceiling', {
       sessionId: session.id,
       heartbeatAgeMs: decision.heartbeatAgeMs,
       ceilingMs: decision.ceilingMs,

@@ -356,7 +356,11 @@ export function openOutboundDb(agentGroupId: string, sessionId: string): Databas
   return openOutboundDbRaw(outboundDbPath(agentGroupId, sessionId));
 }
 
-/** Open the outbound DB for a session with write access. Only safe to call when no container is running. */
+/** Open the outbound DB for a session with write access. The host is the
+ *  sole reader; with journal_mode=DELETE + busy_timeout, an Rw handle is
+ *  safe to hold during container writes (sqlite serializes via POSIX
+ *  locks). Needed for the read path too because readonly open fails when
+ *  outbound.db has a hot journal from a crashed container. */
 export function openOutboundDbRw(agentGroupId: string, sessionId: string): Database.Database {
   return openOutboundDbRwRaw(outboundDbPath(agentGroupId, sessionId));
 }
@@ -378,7 +382,7 @@ export function writeOutboundDirect(
     content: string;
   },
 ): void {
-  const db = openOutboundDb(agentGroupId, sessionId);
+  const db = openOutboundDbRw(agentGroupId, sessionId);
   try {
     db.prepare(
       `INSERT OR IGNORE INTO messages_out (id, seq, timestamp, kind, platform_id, channel_type, thread_id, content)

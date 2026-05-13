@@ -22,7 +22,7 @@ import {
 } from './db/session-db.js';
 import { log } from './log.js';
 import { normalizeOptions } from './channels/ask-question.js';
-import { clearOutbox, openInboundDb, openOutboundDb, readOutboxFiles } from './session-manager.js';
+import { clearOutbox, openInboundDb, openOutboundDbRw, readOutboxFiles } from './session-manager.js';
 import { pauseTypingRefreshAfterDelivery, setTypingAdapter } from './modules/typing/index.js';
 import type { OutboundFile } from './channels/adapter.js';
 import type { Session } from './types.js';
@@ -168,7 +168,12 @@ async function drainSession(session: Session): Promise<void> {
   let outDb: Database.Database;
   let inDb: Database.Database;
   try {
-    outDb = openOutboundDb(agentGroup.id, session.id);
+    // RW handle even though we only read: a readonly open fails ("attempt
+    // to write a readonly database") when outbound.db has a hot journal
+    // from a crashed/killed container. Rw lets SQLite roll the journal
+    // back on first access. busy_timeout=5000 handles container-write
+    // contention. The host never INSERTs into messages_out from this path.
+    outDb = openOutboundDbRw(agentGroup.id, session.id);
     inDb = openInboundDb(agentGroup.id, session.id);
   } catch {
     return; // DBs might not exist yet
