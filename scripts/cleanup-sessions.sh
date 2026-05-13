@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-STORE_DB="$PROJECT_ROOT/store/messages.db"
+CENTRAL_DB="$PROJECT_ROOT/data/v2.db"
 SESSIONS_DIR="$PROJECT_ROOT/data/sessions"
 GROUPS_DIR="$PROJECT_ROOT/groups"
 
@@ -54,12 +54,12 @@ remove() {
 
 # --- Collect active session IDs from the database ---
 
-if [ ! -f "$STORE_DB" ]; then
-  log "ERROR: database not found at $STORE_DB"
+if [ ! -f "$CENTRAL_DB" ]; then
+  log "ERROR: central db not found at $CENTRAL_DB"
   exit 1
 fi
 
-ACTIVE_IDS=$(sqlite3 "$STORE_DB" "SELECT session_id FROM sessions;" 2>/dev/null || true)
+ACTIVE_IDS=$(sqlite3 "$CENTRAL_DB" "SELECT id FROM sessions;" 2>/dev/null || true)
 
 is_active() {
   echo "$ACTIVE_IDS" | grep -qF "$1"

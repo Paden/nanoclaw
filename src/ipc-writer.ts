@@ -56,11 +56,7 @@ function parseJid(jid: string): { channelType: string; platformId: string } {
   if (colon < 0) throw new Error(`invalid jid (no scheme): ${jid}`);
   const scheme = jid.slice(0, colon);
   const platformId = jid.slice(colon + 1);
-  const channelType =
-    scheme === 'dc' ? 'discord' :
-    scheme === 'tg' ? 'telegram' :
-    scheme === 'sl' ? 'slack' :
-    scheme;
+  const channelType = scheme === 'dc' ? 'discord' : scheme === 'tg' ? 'telegram' : scheme === 'sl' ? 'slack' : scheme;
   return { channelType, platformId };
 }
 
