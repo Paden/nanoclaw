@@ -632,6 +632,7 @@ export class DiscordChannel implements ChannelAdapter {
       budget?: number;
       word?: string;
       submission_audit_error?: string;
+      coinsRemaining?: number;
     };
     try {
       result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
@@ -649,17 +650,18 @@ export class DiscordChannel implements ChannelAdapter {
       });
     }
 
-    await interaction.editReply(
-      formatWordleReply({
-        status: result.status || 'error',
-        message: result.message,
-        history: result.history,
-        solved: result.solved,
-        guess_num: result.guess_num,
-        budget: result.budget,
-        word: result.word,
-      }),
-    );
+    const replyText = formatWordleReply({
+      status: result.status || 'error',
+      message: result.message,
+      history: result.history,
+      solved: result.solved,
+      guess_num: result.guess_num,
+      budget: result.budget,
+      word: result.word,
+    });
+    const withCoins =
+      result.coinsRemaining != null ? `${replyText}\n-# 🪙 ${result.coinsRemaining} remaining` : replyText;
+    await interaction.editReply(withCoins);
     log.info('Wordle slash command scored', {
       player,
       guess: guess.toUpperCase(),

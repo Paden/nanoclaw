@@ -37,6 +37,9 @@ const { scoreGuessForPlayer } = await import(
 const { appendRows, readRange, getAccessToken } = await import(
   path.join(ROOT, 'groups', 'global', 'scripts', 'lib', 'sheets.mjs')
 );
+const { getBalance, withdraw: withdrawCoin } = await import(
+  path.join(ROOT, 'groups', 'global', 'scripts', 'lib', 'wordle-coins.mjs')
+);
 
 const PORTILLO_GAMES_SHEET = '1ugYotsqO8UQBydtttEJ4NvnRTN1IbA0-3No7TncSeLY';
 // The pinned card lives in #family-fun regardless of where the slash was invoked.
@@ -145,6 +148,22 @@ export async function runWordleHook({
   return { ok: true, action: 'mid_game_noop', today };
 }
 
+async function countTodaysGuesses(player, token) {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+  const rows = await readRange(
+    PORTILLO_GAMES_SHEET,
+    'Wordle State!A:F',
+    { token },
+  );
+  // No header row in Wordle State — data starts at A2 when read via A:F but
+  // the first row returned may be row 1 (header-less). Columns (0-indexed):
+  //   0: date  1: player  2: guess_num  3: guess  4: grid  5: solved
+  // Filter to today + this player (case-insensitive).
+  return rows.filter(
+    (r) => r[0] === today && String(r[1] || '').toLowerCase() === player.toLowerCase(),
+  ).length;
+}
+
 async function main() {
   const [, , player, guess, groupFolder, userId, gameChannel] = process.argv;
   if (!player || !guess || !groupFolder) {
@@ -173,6 +192,44 @@ async function main() {
     fs.readFileSync(wordlistPath, 'utf8').split('\n').map((s) => s.trim().toLowerCase()).filter(Boolean),
   );
 
+  // Coin / tier-cap gates. Both fail fast with a friendly ephemeral reply.
+  const gateToken = await getAccessToken();
+  const balance = await getBalance(player);
+  if (balance <= 0) {
+    emit({
+      ok: false,
+      status: 'no_coins',
+      message: `You have 0 🪙 — do a chore in #silverthorne to earn a guess.`,
+    });
+    return;
+  }
+
+  // Read today's tier cap from Wordle Today.budgets_json.
+  const todayRows = await readRange(
+    PORTILLO_GAMES_SHEET,
+    'Wordle Today!A:C',
+    { token: gateToken },
+  );
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+  const todayRow = (todayRows || []).find((r) => r[0] === todayStr);
+  let tierCap = 7; // safe default
+  try {
+    const budgets = JSON.parse(todayRow?.[2] || '{}');
+    tierCap = budgets[player] ?? 7;
+  } catch {
+    /* leave tierCap at default */
+  }
+
+  const used = await countTodaysGuesses(player, gateToken);
+  if (used >= tierCap) {
+    emit({
+      ok: false,
+      status: 'tier_cap_reached',
+      message: `You've used all ${tierCap} guesses for today (tier cap). Bank: ${balance} 🪙 — saved for tomorrow.`,
+    });
+    return;
+  }
+
   const result = await scoreGuessForPlayer(player, guess, {
     wordlistLoader: () => wordlist,
   });
@@ -200,6 +257,22 @@ async function main() {
         result.submission_audit_error = err.message;
       }
     }
+  }
+
+  // Withdraw one coin for the submitted guess. eventId is the guess number
+  // so retries with the same guess number no-op.
+  let coinsRemaining = balance;
+  if (result.ok && result.status === 'scored') {
+    try {
+      coinsRemaining = await withdrawCoin(
+        player,
+        `wordle:${player}:${todayStr}:${result.guess_num}`,
+        `wordle:${player}:guess${result.guess_num}`,
+      );
+    } catch (err) {
+      process.stderr.write(`coin withdraw failed: ${err.message}\n`);
+    }
+    result.coinsRemaining = coinsRemaining;
   }
 
   // Event-driven Wordle hook: poll the sheet state and either update the
