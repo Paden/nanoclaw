@@ -32,6 +32,10 @@ const { getAccessToken } = await import(
   path.join(ROOT, 'groups', 'global', 'scripts', 'lib', 'sheets.mjs')
 );
 
+const { deposit: depositCoin } = await import(
+  path.join(ROOT, 'groups', 'global', 'scripts', 'lib', 'wordle-coins.mjs')
+);
+
 const SHEET_ID = '1I3YtBJkFU22xTq1CRqRDjQ1ITrs5nApsfkUV9-jQb-4';
 const TZ = 'America/Chicago';
 
@@ -500,6 +504,37 @@ async function runSubmit(userId, value) {
       awards.push({ owner, xp, award: JSON.parse(lastLine) });
     } catch (err) {
       awards.push({ owner, xp, error: err.message });
+    }
+  }
+
+  // Deposit one Wordle coin per completed chore-id. Idempotent on chore-id —
+  // retries don't double-deposit. Group submissions yield one coin per
+  // chore-id inside the group, matching the XP economy.
+  for (const award of awards) {
+    if (award.error) continue;
+    // All chores in a single submission are done by the same doneBy owner.
+    // Filter to chores that were actually logged this turn (have xp, not skipped).
+    const choresForOwner = results.filter((r) => r.xp && !r.skipped);
+    const coinUpdates = [];
+    for (const chore of choresForOwner) {
+      try {
+        const newBalance = await depositCoin(
+          award.owner,
+          `chore:${chore.chore_id}:${now.dateStr}`,
+          `chore:${chore.chore_id}`,
+        );
+        coinUpdates.push({ chore_id: chore.chore_id, new_balance: newBalance });
+      } catch (err) {
+        // Coin failure shouldn't break the chore log; XP already awarded.
+        process.stderr.write(`coin deposit failed for ${award.owner} ${chore.chore_id}: ${err.message}\n`);
+      }
+    }
+    if (coinUpdates.length > 0) {
+      award.coins = {
+        delta: coinUpdates.length,
+        new_balance: coinUpdates[coinUpdates.length - 1].new_balance,
+        per_chore: coinUpdates,
+      };
     }
   }
 

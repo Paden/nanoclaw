@@ -1570,6 +1570,7 @@ export class DiscordChannel implements ChannelAdapter {
           newXp?: number;
           evolved?: boolean;
         };
+        coins?: { delta: number; new_balance: number; per_chore: Array<{ chore_id: string; new_balance: number }> };
         error?: string;
       }>;
     };
@@ -1598,7 +1599,11 @@ export class DiscordChannel implements ChannelAdapter {
 
     // Send webhook pet ack directly
     if (doneChores.length && result.petName && result.fact) {
-      const dataLine = result.totalXp ? `${result.fact} · +${result.totalXp} XP` : result.fact;
+      const coinAward = (result.awards || []).find((a) => a.coins?.delta);
+      const coinLine = coinAward ? ` · 🪙 +${coinAward.coins!.delta} (bank: ${coinAward.coins!.new_balance})` : '';
+      const dataLine = result.totalXp
+        ? `${result.fact} · +${result.totalXp} XP${coinLine}`
+        : `${result.fact}${coinLine}`;
       const text = result.voice ? `${result.voice}\n-# ${dataLine}` : dataLine;
       const persona = WEBHOOK_PERSONAS[result.petName];
       if (persona) {
