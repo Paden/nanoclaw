@@ -116,7 +116,11 @@ export async function reconcileNow(): Promise<{
     const choreId = String(row[1] || '').trim();
     const doneBy = String(row[3] || '').trim();
     if (!choreId || !doneBy) continue;
-    if (!validChoreIds.has(choreId)) continue; // invented or unknown — skip
+    // Accepted: registered chore-ids from the Chores tab, OR `oneoff_*`
+    // chore-ids (which only get written after explicit user confirmation
+    // via the option-2 path — see groups/discord_silverthorne/CLAUDE.local.md).
+    const isOneOff = choreId.startsWith('oneoff_');
+    if (!validChoreIds.has(choreId) && !isOneOff) continue;
     if (!VALID_PLAYERS.has(doneBy)) continue; // unknown player (e.g. Macy) — skip
     registered++;
 
