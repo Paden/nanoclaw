@@ -35,7 +35,8 @@ import { ChannelAdapter, ChannelSetup, OutboundMessage } from './adapter.js';
 import { formatWordleReply, formatWordleStatusReply } from '../wordle-keyboard.js';
 import { formatQotdStatusReply } from '../qotd-status.js';
 import { stripCard, fitDiscordReply } from '../state-card.js';
-import { writeIpcTask } from '../ipc-writer.js';
+import { writeIpcTask, writeIpcMessage } from '../ipc-writer.js';
+import { buildAvatarPromptMessage } from '../wordle-evolution-prompt.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -1668,6 +1669,32 @@ export class DiscordChannel implements ChannelAdapter {
         log.info('Scheduled evolution ceremony task', { owner: ev.owner, petName, newStage });
       } catch (err) {
         log.error('Failed to schedule evolution ceremony', {
+          err: (err as Error).message,
+          owner: ev.owner,
+          petName,
+        });
+      }
+
+      // Deterministic image-prompt follow-up. The ceremony task asks Claudio
+      // to also generate an avatar-prompt for the owner, but Gemini-3-flash
+      // consistently skips that step (seen on Nyx 2026-05-18 and Voss
+      // 2026-05-23). Post the prompt directly from the host so it never
+      // depends on the model.
+      try {
+        const avatarPromptText = buildAvatarPromptMessage({
+          owner: ev.owner,
+          petName,
+          prevStage,
+          newStage,
+        });
+        await writeIpcMessage('discord_silverthorne', {
+          type: 'message',
+          chatJid: 'dc:1490895684789075968',
+          text: avatarPromptText,
+        });
+        log.info('Posted avatar-prompt follow-up', { owner: ev.owner, petName, newStage });
+      } catch (err) {
+        log.error('Failed to post avatar-prompt follow-up', {
           err: (err as Error).message,
           owner: ev.owner,
           petName,
