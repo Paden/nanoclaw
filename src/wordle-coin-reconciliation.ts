@@ -49,7 +49,7 @@ function loadSheetsMod(): Promise<SheetsLib> {
 
 const SILVERTHORNE_SHEET = '1I3YtBJkFU22xTq1CRqRDjQ1ITrs5nApsfkUV9-jQb-4';
 const VALID_PLAYERS = new Set(['Paden', 'Brenda', 'Danny']);
-const RECONCILIATION_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+const RECONCILIATION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 let lastRunMs = 0;
 let inFlight = false;
@@ -105,9 +105,7 @@ export async function reconcileNow(): Promise<{
 
   // Pull today's Chore Log rows. Columns: [timestamp, chore_id, name, done_by, duration_min, status, notes].
   const logRows = await sheets.readRange(SILVERTHORNE_SHEET, 'Chore Log!A:G', { token });
-  const todays = logRows.filter(
-    (r) => String(r[0] || '').startsWith(today) && String(r[5] || '') !== 'invalid',
-  );
+  const todays = logRows.filter((r) => String(r[0] || '').startsWith(today) && String(r[5] || '') !== 'invalid');
 
   let scanned = 0;
   let registered = 0;
@@ -124,11 +122,7 @@ export async function reconcileNow(): Promise<{
 
     try {
       const before = await coins.getBalance(doneBy);
-      const after = await coins.deposit(
-        doneBy,
-        `chore:${choreId}:${today}`,
-        `chore:${choreId}`,
-      );
+      const after = await coins.deposit(doneBy, `chore:${choreId}:${today}`, `chore:${choreId}`);
       if (after > before) {
         deposited++;
         log.info('Reconciled wordle coin', {
