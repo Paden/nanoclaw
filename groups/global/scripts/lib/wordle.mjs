@@ -103,49 +103,6 @@ export function computeDayStakes({ entries, winner, word }) {
 }
 
 /**
- * Render the pinned wordle_card. Pure function.
- *
- * state = {
- *   day, date, genre, word, resolved,
- *   players: [{ player, pet, petEmoji, guessCount, solved, budget, grids? }],
- *   leaderboard: { [player]: { wins, streak, best, avg } },
- *   lastChapterOpening,
- * }
- */
-export function renderCard(state) {
-  const lines = [];
-  lines.push(`🎯 SAGA WORDLE — Day ${state.day}`);
-  lines.push(`${state.date} · Genre: ${state.genre}`);
-  lines.push('');
-  for (const p of state.players) {
-    const status = state.resolved
-      ? p.solved
-        ? `solved in ${p.guessCount}/${p.budget}`
-        : `failed (${p.guessCount}/${p.budget})`
-      : p.guessCount === 0
-        ? 'not started'
-        : `${p.guessCount}/${p.budget} guesses`;
-    lines.push(`  ${p.player.padEnd(7)} ${p.petEmoji} ${p.pet.padEnd(6)} ${status}`);
-  }
-  lines.push('');
-  lines.push('─────────────────');
-  lines.push('🏆 All-time');
-  for (const p of state.players) {
-    const lb = state.leaderboard?.[p.player];
-    if (!lb) continue;
-    lines.push(
-      `  ${p.player}: ${lb.wins}W · 🔥 ${lb.streak} · best ${lb.best} · ${lb.avg} avg`,
-    );
-  }
-  if (state.lastChapterOpening) {
-    lines.push('');
-    lines.push('─────────────────');
-    lines.push(`📖 _"${state.lastChapterOpening}"_`);
-  }
-  return lines.join('\n');
-}
-
-/**
  * Map pet stage_index (0..14) to Saga Wordle guess budget.
  *
  * Smoothed bands: stages within a band share a budget. See

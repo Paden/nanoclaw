@@ -46,7 +46,7 @@ Host-side tools for talking back to the Discord channel your container is runnin
 - `delete_message({ label })` — delete a labeled message.
 - `pin_message({ label })` / `unpin_message({ label })` — toggle pin.
 
-**Use for:** pinned status cards (`status_card`, `calendar_card`, `panda_heart`, `wordle_card`), ack pings, progress updates during long work.
+**Use for:** pinned status cards (`status_card`, `calendar_card`, `panda_heart`), ack pings, progress updates during long work.
 
 ## `agent-browser` (shell tool, not MCP)
 

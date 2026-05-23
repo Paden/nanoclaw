@@ -66,9 +66,25 @@ function addDays(dateStr, n) {
   return dt.toISOString().slice(0, 10);
 }
 
-// Build list of dates: oldest first
+// Build list of dates: oldest first. Window ends at --end=YYYY-MM-DD if given
+// (used by Discord prev/next-week navigation), else today.
 const today = chicagoDateStr();
-const dates = Array.from({ length: DAYS }, (_, i) => addDays(today, i - DAYS + 1));
+let endDate = today;
+for (const arg of process.argv.slice(2)) {
+  if (arg.startsWith('--end=')) {
+    const v = arg.slice('--end='.length);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      console.log(JSON.stringify({ ok: false, error: `Bad --end "${v}". Use YYYY-MM-DD.` }));
+      process.exit(0);
+    }
+    if (v > today) {
+      console.log(JSON.stringify({ ok: false, error: `--end "${v}" is in the future.` }));
+      process.exit(0);
+    }
+    endDate = v;
+  }
+}
+const dates = Array.from({ length: DAYS }, (_, i) => addDays(endDate, i - DAYS + 1));
 
 // --- Sheet fetch ---
 

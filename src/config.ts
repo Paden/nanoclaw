@@ -108,7 +108,9 @@ export const WEBHOOK_PERSONAS: Record<string, { name: string; avatar?: string }>
   },
   Nyx: {
     name: 'Nyx 🌙',
-    avatar: 'https://i.imgur.com/hSsOdsW.jpeg',
+    // Celestial Tide-Stalker form — Spirit → Elemental evolution 2026-05-18.
+    // Image from Paden's https://imgur.com/a/1K5qVjG (direct).
+    avatar: 'https://i.imgur.com/eNg8MEq.jpeg',
   },
   Zima: {
     name: 'Zima ❄️',

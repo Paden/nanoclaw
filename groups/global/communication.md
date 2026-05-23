@@ -10,7 +10,7 @@ You have `mcp__nanoclaw__send_message` which sends a message immediately while y
 
 ## Label-based message editing
 
-For pinned status cards (like `status_card`, `calendar_card`, `panda_heart`, `wordle_card`), use label-based send/edit instead of tracking IDs yourself:
+For pinned status cards (like `status_card`, `calendar_card`, `panda_heart`), use label-based send/edit instead of tracking IDs yourself:
 
 - Simplest: `send_message({ label: "status_card", pin: true, upsert: true, text: "..." })` every time — `upsert: true` creates on first call, edits the existing message on every subsequent call with the same label. No branching.
 - Without `upsert`: first run uses `send_message({ label, pin, text })`, later updates use `edit_message({ label, text })`.

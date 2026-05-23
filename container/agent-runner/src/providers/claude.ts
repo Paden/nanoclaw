@@ -298,6 +298,11 @@ export class ClaudeProvider implements AgentProvider {
         additionalDirectories: this.additionalDirectories,
         resume: input.continuation,
         pathToClaudeCodeExecutable: '/pnpm/claude',
+        // Hard cap on agentic round-trips per wake. Without this a single
+        // chat reply with an unreadable image attachment burned ~300
+        // gemini-3-flash requests in 17 minutes (2026-05-19). 20 turns
+        // covers anything legitimate and bounds the worst-case cost.
+        maxTurns: 20,
         systemPrompt: instructions ? { type: 'preset' as const, preset: 'claude_code' as const, append: instructions } : undefined,
         allowedTools: [
           ...TOOL_ALLOWLIST,

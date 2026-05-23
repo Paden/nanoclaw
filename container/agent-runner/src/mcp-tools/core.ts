@@ -110,7 +110,7 @@ export const sendMessage: McpToolDefinition = {
           description:
             'Small grey caption rendered below the main text via Discord `-# `. REQUIRED for any Emilio chime tied to a sheet log (feedings, diapers, naps) — format `<Parent> · <details> · <time>` so parents see at-a-glance who logged what. Examples: "Paden · 3oz Bottle · 6:15 PM", "Brenda · wet · 6:15 PM", "Paden · 6:15 PM · 47 min" (nap close).',
         },
-        label: { type: 'string', description: 'Label for upsert/pin tracking (e.g. "status_card", "wordle_card").' },
+        label: { type: 'string', description: 'Label for upsert/pin tracking (e.g. "status_card", "calendar_card").' },
         pin: { type: 'boolean', description: 'Pin this message.' },
         upsert: { type: 'boolean', description: 'Edit existing labeled message instead of posting a new one.' },
       },

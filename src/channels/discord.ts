@@ -35,6 +35,7 @@ import { ChannelAdapter, ChannelSetup, OutboundMessage } from './adapter.js';
 import { formatWordleReply, formatWordleStatusReply } from '../wordle-keyboard.js';
 import { formatQotdStatusReply } from '../qotd-status.js';
 import { stripCard, fitDiscordReply } from '../state-card.js';
+import { writeIpcTask } from '../ipc-writer.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -149,16 +150,21 @@ export class DiscordChannel implements ChannelAdapter {
       }
 
       if (message.attachments.size > 0) {
+        // Directive form: spell out that the content isn't accessible so the
+        // agent doesn't spin tool calls trying to "see" it. A 2026-05-19
+        // image-reply ate ~300 gemini-3-flash requests over 17min before
+        // giving up; the curt `[Image: foo.jpg]` form invited that loop.
         const attachmentDescriptions = [...message.attachments.values()].map((att) => {
           const contentType = att.contentType || '';
+          const name = att.name || 'attachment';
           if (contentType.startsWith('image/')) {
-            return `[Image: ${att.name || 'image'}]`;
+            return `[image attached: ${name} — you cannot view the image. If you need it, ask the user to paste a direct URL.]`;
           } else if (contentType.startsWith('video/')) {
-            return `[Video: ${att.name || 'video'}]`;
+            return `[video attached: ${name} — you cannot view the video.]`;
           } else if (contentType.startsWith('audio/')) {
-            return `[Audio: ${att.name || 'audio'}]`;
+            return `[audio attached: ${name} — you cannot play the audio.]`;
           } else {
-            return `[File: ${att.name || 'file'}]`;
+            return `[file attached: ${name} — you cannot open the file.]`;
           }
         });
         if (content) {
@@ -348,6 +354,14 @@ export class DiscordChannel implements ChannelAdapter {
       if (interaction.isButton()) {
         if (interaction.customId.startsWith('emilio_day:')) {
           await this.handleEmilioHistoryNav(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('emilio_day_table:')) {
+          await this.handleEmilioDayTableNav(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('emilio_week_table:')) {
+          await this.handleEmilioWeekTableNav(interaction);
           return;
         }
       }
@@ -807,6 +821,131 @@ export class DiscordChannel implements ChannelAdapter {
     }
   }
 
+  private buildEmilioDayTableReply(
+    table: string,
+    dateStr: string,
+    today: string,
+  ): { content: string; components: ActionRowBuilder<ButtonBuilder>[] } {
+    const isToday = dateStr === today;
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`emilio_day_table:${this.prevDate(dateStr)}`)
+        .setLabel('◀ Prev Day')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`emilio_day_table:${this.nextDate(dateStr)}`)
+        .setLabel('Next Day ▶')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(isToday),
+    );
+    return { content: table, components: [row] };
+  }
+
+  private async runEmilioDaySlash(dateStr: string): Promise<{ ok?: boolean; table?: string; error?: string }> {
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-day-slash.mjs');
+    const { stdout } = await execFileAsync('node', [scriptPath, `--date=${dateStr}`], {
+      timeout: 25_000,
+      maxBuffer: 1_000_000,
+      env: {
+        ...process.env,
+        GOOGLE_OAUTH_CREDENTIALS:
+          process.env.GOOGLE_OAUTH_CREDENTIALS ||
+          path.resolve(process.cwd(), 'data', 'google-calendar', 'gcp-oauth.keys.json'),
+        GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+          process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
+          path.resolve(os.homedir(), '.config', 'google-calendar-mcp', 'tokens.json'),
+      },
+    });
+    return JSON.parse(stdout.trim().split('\n').pop() || '{}');
+  }
+
+  private async handleEmilioDayTableNav(interaction: ButtonInteraction): Promise<void> {
+    const dateStr = interaction.customId.split(':')[1];
+    const today = this.chicagoDateStr();
+    if (!dateStr || dateStr > today) {
+      await interaction.update({ content: '⚠️ Invalid date.', components: [] });
+      return;
+    }
+    try {
+      const result = await this.runEmilioDaySlash(dateStr);
+      if (!result.ok || !result.table) {
+        await interaction.update({ content: `⚠️ ${result.error || 'Unknown error'}`, components: [] });
+        return;
+      }
+      await interaction.update(this.buildEmilioDayTableReply(result.table, dateStr, today));
+    } catch (err) {
+      log.error('emilio_day_table nav failed', { err, dateStr });
+      await interaction.update({ content: '⚠️ Could not load that day.', components: [] });
+    }
+  }
+
+  private buildEmilioWeekTableReply(
+    table: string,
+    endDate: string,
+    today: string,
+  ): { content: string; components: ActionRowBuilder<ButtonBuilder>[] } {
+    const isCurrent = endDate === today;
+    const prevEnd = this.addDays(endDate, -7);
+    const nextEnd = this.addDays(endDate, 7);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`emilio_week_table:${prevEnd}`)
+        .setLabel('◀ Prev Week')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`emilio_week_table:${nextEnd > today ? today : nextEnd}`)
+        .setLabel('Next Week ▶')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(isCurrent),
+    );
+    return { content: table, components: [row] };
+  }
+
+  private async runEmilioWeekSlash(endDate: string | null): Promise<{ ok?: boolean; table?: string; error?: string }> {
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-week-slash.mjs');
+    const args = endDate ? [scriptPath, `--end=${endDate}`] : [scriptPath];
+    const { stdout } = await execFileAsync('node', args, {
+      timeout: 25_000,
+      maxBuffer: 1_000_000,
+      env: {
+        ...process.env,
+        GOOGLE_OAUTH_CREDENTIALS:
+          process.env.GOOGLE_OAUTH_CREDENTIALS ||
+          path.resolve(process.cwd(), 'data', 'google-calendar', 'gcp-oauth.keys.json'),
+        GOOGLE_CALENDAR_MCP_TOKEN_PATH:
+          process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH ||
+          path.resolve(os.homedir(), '.config', 'google-calendar-mcp', 'tokens.json'),
+      },
+    });
+    return JSON.parse(stdout.trim().split('\n').pop() || '{}');
+  }
+
+  private async handleEmilioWeekTableNav(interaction: ButtonInteraction): Promise<void> {
+    const endDate = interaction.customId.split(':')[1];
+    const today = this.chicagoDateStr();
+    if (!endDate || endDate > today) {
+      await interaction.update({ content: '⚠️ Invalid week.', components: [] });
+      return;
+    }
+    try {
+      const result = await this.runEmilioWeekSlash(endDate);
+      if (!result.ok || !result.table) {
+        await interaction.update({ content: `⚠️ ${result.error || 'Unknown error'}`, components: [] });
+        return;
+      }
+      await interaction.update(this.buildEmilioWeekTableReply(result.table, endDate, today));
+    } catch (err) {
+      log.error('emilio_week_table nav failed', { err, endDate });
+      await interaction.update({ content: '⚠️ Could not load that week.', components: [] });
+    }
+  }
+
+  private addDays(dateStr: string, n: number): string {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + n));
+    return dt.toISOString().slice(0, 10);
+  }
+
   // --- /emilio-week ---
 
   private async handleEmilioWeekCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
@@ -860,7 +999,8 @@ export class DiscordChannel implements ChannelAdapter {
       return;
     }
 
-    await interaction.editReply(result.table);
+    const today = this.chicagoDateStr();
+    await interaction.editReply(this.buildEmilioWeekTableReply(result.table, today, today));
     log.info('/emilio-week slash command ran');
   }
 
@@ -924,7 +1064,9 @@ export class DiscordChannel implements ChannelAdapter {
       return;
     }
 
-    await interaction.editReply(result.table);
+    const today = this.chicagoDateStr();
+    const resolvedDate = dateOpt === 'today' ? today : dateOpt === 'yesterday' ? this.prevDate(today) : dateOpt;
+    await interaction.editReply(this.buildEmilioDayTableReply(result.table, resolvedDate, today));
     log.info('/emilio-day slash command ran', { date: dateOpt });
   }
 
@@ -1418,6 +1560,18 @@ export class DiscordChannel implements ChannelAdapter {
       voice?: string;
       totalXp?: number;
       chores?: Array<{ chore_id: string; name?: string; xp?: number; skipped?: string; error?: string }>;
+      awards?: Array<{
+        owner: string;
+        xp: number;
+        award?: {
+          petName?: string;
+          prevStage?: string;
+          newStage?: string;
+          newXp?: number;
+          evolved?: boolean;
+        };
+        error?: string;
+      }>;
     };
     try {
       result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
@@ -1465,6 +1619,52 @@ export class DiscordChannel implements ChannelAdapter {
       doneCount: doneChores.length,
       totalXp: result.totalXp,
     });
+
+    // Evolution ceremony trigger. award_xp.mjs writes the Pets sheet update +
+    // evolution row to Pet Log on stage-up; this wakes Claudio to do the
+    // theatrical post + species/avatar generation per chore_pet_spec.md.
+    const evolutions = (result.awards || []).filter((a) => a.award?.evolved);
+    for (const ev of evolutions) {
+      const petName = ev.award?.petName || '(pet)';
+      const prevStage = ev.award?.prevStage || '?';
+      const newStage = ev.award?.newStage || '?';
+      const ceremonyPrompt = [
+        `A pet just evolved via /chore. Run the ceremony per /workspace/agent/chore_pet_spec.md.`,
+        '',
+        `Owner: ${ev.owner}`,
+        `Pet: ${petName}`,
+        `Evolution: ${prevStage} → ${newStage}`,
+        '',
+        '1. Generate a fresh, unique species description for the new stage — wild',
+        '   imagination, distinct from prior stages. Two pets must never share a',
+        '   description.',
+        '2. Post the theatrical 3-message sequence in #silverthorne:',
+        '   anticipation → ✨✨✨ → reveal (with the new species description).',
+        "3. Update the pet's avatar via personas[<PetName>] = { name: existing,",
+        '   avatar: new URL } so its webhook posts show the new form.',
+        '4. Update the Pet Log evolution row notes column (currently "species TBD',
+        '   by agent") with the species description for posterity.',
+        '',
+        "Don't re-award XP or modify HP — award_xp.mjs already did the math.",
+        'Just the ceremony.',
+      ].join('\n');
+      try {
+        await writeIpcTask('discord_silverthorne', {
+          type: 'schedule_task',
+          prompt: ceremonyPrompt,
+          targetJid: 'dc:1490895684789075968',
+          schedule_type: 'once',
+          schedule_value: new Date().toISOString(),
+        });
+        log.info('Scheduled evolution ceremony task', { owner: ev.owner, petName, newStage });
+      } catch (err) {
+        log.error('Failed to schedule evolution ceremony', {
+          err: (err as Error).message,
+          owner: ev.owner,
+          petName,
+        });
+      }
+    }
   }
 
   private async handleEmilioSlashCommand(interaction: import('discord.js').ChatInputCommandInteraction): Promise<void> {
@@ -1668,6 +1868,26 @@ export class DiscordChannel implements ChannelAdapter {
   async deliver(platformId: string, _threadId: string | null, message: OutboundMessage): Promise<string | undefined> {
     const content = message.content as Record<string, unknown> | null;
 
+    // Delete operation: {operation: "delete_message", messageId} deletes the
+    // message by platform ID. Used by host-side cleanup (e.g. wiping LLM
+    // narration messages) where we don't have a label/upsert flow.
+    if (content && content.operation === 'delete_message') {
+      const targetId = typeof content.messageId === 'string' ? content.messageId : null;
+      if (!targetId || !this.client) return undefined;
+      // Accept either bare Discord id or "<id>:<session>" combined form.
+      const discordMsgId = targetId.includes(':') ? targetId.split(':')[0] : targetId;
+      try {
+        const ch = await this.client.channels.fetch(platformId);
+        if (ch && 'messages' in ch) {
+          const msg = await (ch as TextChannel).messages.fetch(discordMsgId).catch(() => null);
+          if (msg) await msg.delete().catch(() => undefined);
+        }
+      } catch (err) {
+        log.warn('Failed to delete Discord message', { discordMsgId, err: (err as Error).message });
+      }
+      return undefined;
+    }
+
     // Unpin operation: {operation: "unpin_message", label} unpins the pinned
     // message stored under that label in message_labels.json and clears the
     // label entry. Used to retire pinned cards.
@@ -1756,6 +1976,60 @@ export class DiscordChannel implements ChannelAdapter {
       .replace(/(^|\n)\s*\[no-reply\]\s*(?=\n|$)/gi, '')
       .trim();
     if (!text) return undefined;
+
+    // Drop trailing "I've completed X" / "What was done:" style completion
+    // summaries. The container/CLAUDE.md tells the agent the deliverable IS
+    // the summary, but Gemini-3-flash repeatedly emits a second message
+    // narrating what it just did. The pattern is recognizable and we'd
+    // rather drop than deliver it.
+    //
+    // Heuristic: short-ish message that opens with a first-person past-tense
+    // accomplishment verb, OR contains a "What was done:" / "Summary of
+    // what I did" header. We don't filter mid-conversation messages that
+    // happen to start with these phrases because real chat replies are
+    // almost always longer than 800 chars by the time they include these
+    // openers and don't tend to be the entire reply.
+    if (
+      text.length < 800 &&
+      /^(I['’]ve|I have)\s+(posted|completed|finished|updated|sent|done|logged|created|added|scheduled|written|queued|deleted|removed)\b/i.test(
+        text,
+      )
+    ) {
+      log.warn('Dropped completion-summary message', {
+        platformId,
+        preview: text.slice(0, 100),
+      });
+      return undefined;
+    }
+    if (/^\*?\*?(What was done|Summary of what I did|Here['’]s (a |the )?summary)/i.test(text)) {
+      log.warn('Dropped completion-summary message', {
+        platformId,
+        preview: text.slice(0, 100),
+      });
+      return undefined;
+    }
+
+    // #family-fun pin/label strip: defense-in-depth against the model
+    // re-pinning status cards. CLAUDE.local.md forbids `send_message` with
+    // `pin: true` or any `label` in this channel, but the LLM ignores the
+    // rule under conversational pressure (e.g. responding to confusion about
+    // resets). Strip the flags so the message posts as a plain reply.
+    if (
+      DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_family-fun' &&
+      content &&
+      typeof content === 'object' &&
+      (content.label || content.pin || content.upsert)
+    ) {
+      log.warn('Stripped pin/label flags from #family-fun message', {
+        platformId,
+        label: content.label,
+        pin: content.pin,
+        upsert: content.upsert,
+      });
+      delete content.label;
+      delete content.pin;
+      delete content.upsert;
+    }
 
     // #family-fun word redaction: defense-in-depth against the model
     // leaking today's Saga Wordle word in chat. The agent prompt already

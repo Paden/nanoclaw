@@ -4,7 +4,6 @@ import {
   isValidGuessShape,
   determineWinner,
   computeDayStakes,
-  renderCard,
   stageToBudget,
   computeWordleHpDelta,
 } from './wordle.mjs';
@@ -199,41 +198,3 @@ describe('computeDayStakes', () => {
   });
 });
 
-describe('renderCard', () => {
-  const base = {
-    day: 12,
-    date: 'Apr 7',
-    genre: 'pirate space opera',
-    word: 'crane',
-    resolved: false,
-    players: [
-      { player: 'Paden', pet: 'Voss', petEmoji: '🌋', guessCount: 2, solved: false, budget: 6 },
-      { player: 'Brenda', pet: 'Nyx', petEmoji: '🌙', guessCount: 0, solved: false, budget: 7 },
-    ],
-    leaderboard: {
-      Paden: { wins: 12, streak: 3, best: 7, avg: 4.1 },
-      Brenda: { wins: 15, streak: 7, best: 11, avg: 3.8 },
-    },
-    lastChapterOpening: 'The comet shivered.',
-  };
-  it('renders in-progress counts', () => {
-    const out = renderCard(base);
-    expect(out).toContain('Day 12');
-    expect(out).toContain('2/6 guesses');
-    expect(out).toContain('not started');
-    expect(out).toContain('🏆 All-time');
-    expect(out).toContain('The comet shivered.');
-  });
-  it('renders resolved state', () => {
-    const out = renderCard({
-      ...base,
-      resolved: true,
-      players: [
-        { ...base.players[0], guessCount: 3, solved: true },
-        { ...base.players[1], guessCount: 7, solved: false },
-      ],
-    });
-    expect(out).toContain('solved in 3/6');
-    expect(out).toContain('failed (7/7)');
-  });
-});
