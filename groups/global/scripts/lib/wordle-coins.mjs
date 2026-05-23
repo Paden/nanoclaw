@@ -90,6 +90,14 @@ async function applyDelta({ player, delta, reason, eventId, clampMode, deps }) {
     throw new Error(`insufficient coins for ${player}: balance is 0`);
   }
 
+  // Capped-out deposits (player already at COIN_CAP, fresh eventId) are a
+  // no-op: the chore still earned XP via award_xp, but no coin lands. Don't
+  // log a misleading `+1` row to the audit trail when the balance didn't
+  // actually move.
+  if (clampMode === 'cap' && next === current) {
+    return current;
+  }
+
   const now = new Date().toISOString();
   const newRow = [player, String(next), now, eventId || hit.row[3] || ''];
   await deps.updateRangeFn(

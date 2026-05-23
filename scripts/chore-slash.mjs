@@ -512,8 +512,10 @@ async function runSubmit(userId, value) {
   // chore-id inside the group, matching the XP economy.
   for (const award of awards) {
     if (award.error) continue;
-    // All chores in a single submission are done by the same doneBy owner.
-    // Filter to chores that were actually logged this turn (have xp, not skipped).
+    // All chores in a single submission are done by the same doneBy owner —
+    // earnedByOwner has exactly one key per call today. If a future change
+    // splits owner vs helper XP across multiple earners, add an explicit
+    // `r.doneBy === award.owner` filter to avoid cross-deposit.
     const choresForOwner = results.filter((r) => r.xp && !r.skipped);
     const coinUpdates = [];
     for (const chore of choresForOwner) {
