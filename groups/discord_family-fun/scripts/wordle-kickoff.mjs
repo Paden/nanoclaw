@@ -75,10 +75,15 @@ async function main() {
   );
 
   const token = await getAccessToken();
+  // Write the raw tier cap (per pet stage), not a 7:30am snapshot of
+  // min(bank, tier). `/wordle` gates on (balance > 0) AND (used < cap)
+  // live, so coins earned during the day are spendable the same day.
+  // Earlier behavior locked today's max at the morning bank — coins earned
+  // after 7:30am couldn't be spent until tomorrow. That was wrong.
   await appendRows(
     PORTILLO_GAMES_SHEET,
     'Wordle Today!A:C',
-    [[date, word, JSON.stringify(effectiveBudgets)]],
+    [[date, word, JSON.stringify(budgets)]],
     { token },
   );
 
@@ -90,14 +95,14 @@ async function main() {
 
   const playerLines = Object.entries(budgets).map(([player, tierMax]) => {
     const bank = balances[player] ?? 0;
-    const today = effectiveBudgets[player];
     const tail = bank === 0 ? '   ← do a chore to play' : '';
-    return `${player}  ${today} / ${tierMax}  · 🪙 ${bank}${tail}`;
+    return `${player}  🪙 ${bank} · cap ${tierMax}/day${tail}`;
   });
 
   const text = [
     `**Wordle Day ${nextDay}** — ${date}`,
     ...playerLines,
+    '_Each chore = +1 🪙. Coins earned today are spendable today, up to the tier cap._',
     `Submit with \`/wordle <word>\` · status via \`/wordle-status\``,
   ].join('\n');
 
