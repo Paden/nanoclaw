@@ -719,6 +719,7 @@ export class DiscordChannel implements ChannelAdapter {
       budget?: number;
       solved?: boolean;
       word?: string;
+      banked?: number | null;
     };
     try {
       result = JSON.parse(stdout.trim().split('\n').pop() || '{}');
@@ -736,6 +737,7 @@ export class DiscordChannel implements ChannelAdapter {
         budget: result.budget,
         solved: result.solved,
         word: result.word,
+        banked: result.banked,
       }),
     );
     log.info('Wordle status slash command ran', {

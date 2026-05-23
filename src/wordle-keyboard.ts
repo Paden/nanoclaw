@@ -117,9 +117,12 @@ export interface WordleStatusReplyInput {
   budget?: number;
   solved?: boolean;
   word?: string;
+  banked?: number | null;
 }
 
 export function formatWordleStatusReply(r: WordleStatusReplyInput): string {
+  const coinSuffix = r.banked != null ? ` · 🪙 ${r.banked} banked` : '';
+
   if (r.status !== 'status') {
     return r.message || `(${r.status})`;
   }
@@ -128,7 +131,7 @@ export function formatWordleStatusReply(r: WordleStatusReplyInput): string {
   const used = history.length;
 
   if (used === 0) {
-    return `No guesses yet today — you have ${budget} tries. Use \`/wordle\` to start.`;
+    return `No guesses yet today — you have ${budget} tries. Use \`/wordle\` to start.${coinSuffix}`;
   }
 
   const parts: string[] = [];
@@ -137,11 +140,11 @@ export function formatWordleStatusReply(r: WordleStatusReplyInput): string {
   parts.push(renderKeyboard(history));
   parts.push('');
   if (r.solved) {
-    parts.push(`🎉 Solved in ${used}/${budget}.`);
+    parts.push(`🎉 Solved in ${used}/${budget}.${coinSuffix}`);
   } else if (r.word) {
-    parts.push(`Out of guesses. The word was **${r.word}**.`);
+    parts.push(`Out of guesses. The word was **${r.word}**.${coinSuffix}`);
   } else {
-    parts.push(`${used}/${budget} guesses used — ${budget - used} left.`);
+    parts.push(`${used}/${budget} guesses used — ${budget - used} left.${coinSuffix}`);
   }
   return parts.join('\n');
 }

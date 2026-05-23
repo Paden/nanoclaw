@@ -33,6 +33,9 @@ process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH =
 const { getStatusForPlayer } = await import(
   path.join(ROOT, 'groups', 'global', 'scripts', 'score-guess.mjs')
 );
+const { getBalance } = await import(
+  path.join(ROOT, 'groups', 'global', 'scripts', 'lib', 'wordle-coins.mjs')
+);
 
 function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
@@ -46,7 +49,15 @@ async function main() {
   }
 
   const result = await getStatusForPlayer(player);
-  emit(result);
+
+  // Attach coin bank balance so the Discord renderer can surface it.
+  let banked = null;
+  try {
+    banked = await getBalance(player);
+  } catch {
+    // Non-fatal — status still works without the balance.
+  }
+  emit({ ...result, banked });
 }
 
 main().catch((err) => {
