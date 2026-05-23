@@ -69,11 +69,21 @@ async function applyDelta({ player, delta, reason, eventId, clampMode, deps }) {
     throw new Error(`Wordle Coins row not found for player: ${player}`);
   }
   const current = parseInt(hit.row[1], 10) || 0;
-  const lastEventId = hit.row[3] || '';
 
-  // Idempotency check
-  if (eventId && lastEventId === eventId) {
-    return current;
+  // Idempotency: scan the full Wordle Coins Log for any prior row with the
+  // same (player, event_id) pair. The previous "last_event_id only" check
+  // was insufficient — interleaved deposits rotate last_event_id forward
+  // and made it possible to re-deposit older events. Searching the log is
+  // the correct semantics: an event_id seen once is an event_id done forever.
+  // Skipped for set-mode (always writes, no idempotency by design).
+  if (eventId && clampMode !== 'set') {
+    const logRows = await deps.readRangeFn(PORTILLO_GAMES_SHEET, LOG_TAB, { token });
+    for (let i = logRows.length - 1; i >= 1; i--) {
+      const r = logRows[i];
+      if (String(r[1] || '') === player && String(r[5] || '') === eventId) {
+        return current;
+      }
+    }
   }
 
   let next;

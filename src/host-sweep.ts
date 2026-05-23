@@ -46,6 +46,7 @@ import { log } from './log.js';
 import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath } from './session-manager.js';
 import { isContainerRunning, killContainer, wakeContainer } from './container-runner.js';
 import type { Session } from './types.js';
+import { reconcileWordleCoinsTick } from './wordle-coin-reconciliation.js';
 
 /**
  * SQLite TIMESTAMP columns store UTC without a timezone marker. Date.parse
@@ -142,6 +143,9 @@ async function sweep(): Promise<void> {
   } catch (err) {
     log.error('Host sweep error', { err });
   }
+
+  // Throttled internally to ~once per 10 min; cheap when nothing to do.
+  void reconcileWordleCoinsTick();
 
   setTimeout(sweep, SWEEP_INTERVAL_MS);
 }
