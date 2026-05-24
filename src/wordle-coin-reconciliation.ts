@@ -14,7 +14,30 @@
 // Claudio invents a chore-id like `paint_kitchen` (seen 2026-05-23), the
 // reconciliation skips it — no coin is awarded for invented chores.
 
+import path from 'path';
+import os from 'os';
 import { log } from './log.js';
+
+// sheets.mjs defaults to container-mount paths for the calendar-mcp OAuth
+// keys/tokens. When this code runs on the host (e.g. inside the host-sweep
+// loop), those paths don't exist — we need to point at the host-side
+// equivalents. Set the env vars once at module load.
+if (!process.env.GOOGLE_OAUTH_CREDENTIALS) {
+  process.env.GOOGLE_OAUTH_CREDENTIALS = path.resolve(
+    process.cwd(),
+    'data',
+    'google-calendar',
+    'gcp-oauth.keys.json',
+  );
+}
+if (!process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH) {
+  process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH = path.join(
+    os.homedir(),
+    '.config',
+    'google-calendar-mcp',
+    'tokens.json',
+  );
+}
 
 // Lazy-loaded via dynamic import. The .mjs modules don't ship .d.ts, so we
 // type their public surface inline. Live wiring goes to the calendar-mcp
