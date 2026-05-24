@@ -173,83 +173,18 @@ export async function runAwake({ userId, time }, deps) {
   if (!result.ok) return { ok: false, error: result.error || 'close_sleep failed' };
   const owner = ownerFor(userId);
 
-  // Feeding context — help parents assess whether Emilio needs to be fed
-  // when he wakes. Read the most recent feeding, compute time delta from
-  // the wake time, append to the chime subtext.
-  let feedSuffix = '';
-  try {
-    const feedRows = await deps.readFeedings(token);
-    const lastFeed = findLastFeeding(feedRows);
-    if (lastFeed) {
-      const sinceText = formatSinceLastFeed(lastFeed.timestamp, parsed.iso);
-      const ozText = lastFeed.amount ? `${lastFeed.amount}oz` : '?oz';
-      feedSuffix = ` · last fed ${ozText} (${sinceText} ago)`;
-    }
-  } catch (err) {
-    process.stderr.write(`feeding read failed: ${err.message}\n`);
-  }
+  // Feeding context (· last fed Xoz (Yh Zm ago)) is appended by the
+  // Discord adapter when this chime ships — see src/emilio-feed-context.ts.
+  // That path also covers Macy / agent-driven nap closes uniformly, so we
+  // don't enrich here.
 
   const followups = await emitFollowups(
     deps,
     'awake',
-    `${owner} · ${parsed.displayLocal} · ${result.durationMin}m nap${feedSuffix}`,
+    `${owner} · ${parsed.displayLocal} · ${result.durationMin}m nap`,
     { parentRole: parentRoleFor(userId) },
   );
-  return { ok: true, ...followups, reply: `Nap closed at ${parsed.displayLocal}, ${result.durationMin} min.${feedSuffix}` };
-}
-
-// Walk the feedings sheet from the end, return the latest row with a
-// parseable timestamp. Columns: [Feed time, Amount (oz), Source].
-function findLastFeeding(rows) {
-  if (!rows || rows.length < 2) return null;
-  for (let i = rows.length - 1; i >= 1; i--) {
-    const ts = String(rows[i][0] || '').trim();
-    if (!ts) continue;
-    const ms = parseChicagoLocalTs(ts);
-    if (!Number.isFinite(ms)) continue;
-    return { timestamp: ts, amount: rows[i][1], source: rows[i][2], _ms: ms };
-  }
-  return null;
-}
-
-// Parse a Chicago-local timestamp like "2026-05-23 22:20:00" → epoch ms.
-// Treats the string as Chicago wall-clock and converts to UTC using the
-// CDT offset (most of the year) or CST as a fallback.
-function parseChicagoLocalTs(s) {
-  // Accept both "YYYY-MM-DD HH:MM:SS" and ISO with T/Z (sleep timestamps).
-  if (/[TZ]/.test(s)) {
-    const t = Date.parse(s);
-    return Number.isFinite(t) ? t : NaN;
-  }
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})$/);
-  if (!m) return NaN;
-  const [, y, mo, d, h, mi, se] = m.map(Number);
-  // Use Intl to figure out today's offset for America/Chicago to handle DST.
-  const probe = new Date(Date.UTC(y, mo - 1, d, h, mi, se));
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Chicago',
-    timeZoneName: 'shortOffset',
-  });
-  const parts = fmt.formatToParts(probe);
-  const tz = parts.find((p) => p.type === 'timeZoneName')?.value || 'GMT-5';
-  const offMatch = tz.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
-  if (!offMatch) return NaN;
-  const sign = offMatch[1] === '+' ? 1 : -1;
-  const offMin = sign * (parseInt(offMatch[2], 10) * 60 + (parseInt(offMatch[3] || '0', 10)));
-  // wallclock = utc + offMin; so utc = wallclock - offMin
-  return Date.UTC(y, mo - 1, d, h, mi, se) - offMin * 60_000;
-}
-
-function formatSinceLastFeed(lastTs, awakeIso) {
-  const lastMs = parseChicagoLocalTs(lastTs);
-  const awakeMs = Date.parse(awakeIso);
-  if (!Number.isFinite(lastMs) || !Number.isFinite(awakeMs)) return '?';
-  const deltaMin = Math.max(0, Math.round((awakeMs - lastMs) / 60_000));
-  const h = Math.floor(deltaMin / 60);
-  const m = deltaMin % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
+  return { ok: true, ...followups, reply: `Nap closed at ${parsed.displayLocal}, ${result.durationMin} min.` };
 }
 
 export async function runFeeding({ userId, amount, time, source }, deps) {

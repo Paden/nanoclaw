@@ -37,6 +37,7 @@ import { formatQotdStatusReply } from '../qotd-status.js';
 import { stripCard, fitDiscordReply } from '../state-card.js';
 import { writeIpcTask, writeIpcMessage } from '../ipc-writer.js';
 import { buildAvatarPromptMessage } from '../wordle-evolution-prompt.js';
+import { buildLastFedSuffix, isNapCloseSubtext, subtextAlreadyEnriched } from '../emilio-feed-context.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -2114,7 +2115,22 @@ export class DiscordChannel implements ChannelAdapter {
     // under an Emilio chime). Only added when the agent passes the dedicated
     // `subtext` field on send_message; we don't try to detect or auto-format.
     if (content && typeof content.subtext === 'string' && content.subtext.trim()) {
-      text = `${text}\n-# ${content.subtext.trim()}`;
+      let subtext = content.subtext.trim();
+      // Nap-close enrichment: if this is an emilio-care chime ending a nap
+      // and the subtext doesn't already carry feeding context, append the
+      // last-fed marker so parents can assess whether Emilio needs to eat.
+      // Works for both the /awake slash path AND the agent-driven path
+      // (Macy / anyone saying "he's awake" → Claudio logs sleep + emits a
+      // chime). Best-effort: any failure silently returns ''.
+      if (
+        DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care' &&
+        isNapCloseSubtext(subtext) &&
+        !subtextAlreadyEnriched(subtext)
+      ) {
+        const suffix = await buildLastFedSuffix();
+        if (suffix) subtext += suffix;
+      }
+      text = `${text}\n-# ${subtext}`;
     }
 
     // Webhook persona routing
