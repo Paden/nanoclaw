@@ -2045,6 +2045,26 @@ export class DiscordChannel implements ChannelAdapter {
       return undefined;
     }
 
+    // #emilio-care: drop verb+event-noun acks that mirror the Emilio chime
+    // subtext. Claudio is told the chime IS the response, but Gemini keeps
+    // emitting a plain "Updated last feeding to 5oz." after the webhook
+    // post — duplicate ack. The pattern is formulaic (Updated/Logged/
+    // Recorded/Set/Closed/Opened + feeding|diaper|nap|sleep|...) and only
+    // shows up in this channel.
+    if (
+      DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care' &&
+      text.length < 300 &&
+      /^(Updated|Logged|Recorded|Set|Closed|Opened)\s+(the\s+|last\s+)?(feeding|diaper|nap|sleep|asleep|awake|change|bottle)/i.test(
+        text,
+      )
+    ) {
+      log.warn('Dropped Emilio chime echo', {
+        platformId,
+        preview: text.slice(0, 100),
+      });
+      return undefined;
+    }
+
     // #family-fun pin/label strip: defense-in-depth against the model
     // re-pinning status cards. CLAUDE.local.md forbids `send_message` with
     // `pin: true` or any `label` in this channel, but the LLM ignores the
