@@ -100,6 +100,27 @@ function forgetRecent(channelId: string, platformMsgId: string): void {
   recentMessagesByChannel.set(channelId, recents);
 }
 
+// Per-channel record of the most recent inbound sender. Used by the
+// emilio-care adapter to fix Claudio's wrong-attribution bug (he defaults
+// to "Paden" in the chime subtext regardless of who actually posted). We
+// rewrite the subtext name to match the actual sender, and strip the
+// chime entirely when the sender isn't a household parent.
+const lastInboundByChannel = new Map<string, { senderName: string; ts: number }>();
+const ATTRIBUTION_WINDOW_MS = 90 * 1000;
+const EMILIO_HOUSEHOLD = new Set(['Paden', 'Brenda', 'Danny']);
+
+function recordInboundSender(channelId: string, senderName: string): void {
+  if (!senderName) return;
+  lastInboundByChannel.set(channelId, { senderName, ts: Date.now() });
+}
+
+function getRecentInboundSender(channelId: string): string | null {
+  const hit = lastInboundByChannel.get(channelId);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > ATTRIBUTION_WINDOW_MS) return null;
+  return hit.senderName;
+}
+
 // Emoji-name → unicode map for the add_reaction MCP tool. The tool accepts
 // names like "thumbs_up" / "eyes" but Discord.js's msg.react() needs the
 // actual unicode codepoint. Anything not in this map is passed through
@@ -273,6 +294,12 @@ export class DiscordChannel implements ChannelAdapter {
         isGroup: true,
         isMention,
       });
+
+      // Remember who last posted in this channel — used by the emilio-care
+      // adapter below to correct Claudio's wrong-attribution habit (he
+      // routinely writes "Paden" in chime subtexts regardless of who
+      // actually triggered the log).
+      recordInboundSender(channelId, senderName);
 
       log.info('Discord message stored', { channelId, chatName, sender: senderName });
     });
@@ -2206,10 +2233,54 @@ export class DiscordChannel implements ChannelAdapter {
       }
     }
 
+    // #emilio-care attribution + non-household chime suppression. Claudio
+    // routinely (a) defaults the chime's leading name to "Paden" regardless
+    // of who actually posted, and (b) emits chimes for Macy/non-household
+    // senders even though the CLAUDE.local.md rule forbids it. Both are
+    // model-behavior failures we patch at the adapter.
+    let suppressSubtext = false;
+    if (
+      DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care' &&
+      content &&
+      typeof content.subtext === 'string' &&
+      content.subtext.trim()
+    ) {
+      const recentSender = getRecentInboundSender(platformId);
+      if (recentSender) {
+        const subtextStr = content.subtext.trim();
+        const leadingName = subtextStr.split('·')[0]?.trim() ?? '';
+
+        if (!EMILIO_HOUSEHOLD.has(recentSender)) {
+          // Non-household sender (Macy, guests). Per channel rule: no
+          // Emilio chime — strip the subtext + webhook persona so the
+          // message renders as a plain Claudio reply.
+          log.warn('Suppressing Emilio chime for non-household sender', {
+            platformId,
+            recentSender,
+            originalSubtext: subtextStr,
+          });
+          suppressSubtext = true;
+          if (content && typeof content === 'object') delete content.sender;
+        } else if (leadingName && EMILIO_HOUSEHOLD.has(leadingName) && leadingName !== recentSender) {
+          // Wrong-attribution: subtext starts with one parent's name but
+          // a different one actually posted. Rewrite.
+          log.warn('Rewrote chime subtext attribution', {
+            platformId,
+            wrong: leadingName,
+            correct: recentSender,
+          });
+          (content as Record<string, unknown>).subtext = subtextStr.replace(
+            new RegExp(`^${leadingName}`),
+            recentSender,
+          );
+        }
+      }
+    }
+
     // Append `-# subtext` for Discord small-text caption (e.g. "Paden · 3oz · 6:15 PM"
     // under an Emilio chime). Only added when the agent passes the dedicated
     // `subtext` field on send_message; we don't try to detect or auto-format.
-    if (content && typeof content.subtext === 'string' && content.subtext.trim()) {
+    if (content && typeof content.subtext === 'string' && content.subtext.trim() && !suppressSubtext) {
       let subtext = content.subtext.trim();
       // Nap-close enrichment: if this is an emilio-care chime ending a nap
       // and the subtext doesn't already carry feeding context, append the
