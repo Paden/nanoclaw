@@ -41,6 +41,29 @@ import { buildLastFedSuffix, isNapCloseSubtext, subtextAlreadyEnriched } from '.
 
 const execFileAsync = promisify(execFile);
 
+// Per-channel buffer of recently-delivered message texts (post-transform).
+// Used to dedup duplicate outbounds Claudio sends within a single turn —
+// classically a chime-with-subtext followed by a bare echo of the same
+// text. We compare exact text only; near-duplicates with different phrasing
+// pass through.
+const RECENT_TEXT_WINDOW_MS = 30 * 1000;
+const RECENT_TEXT_MAX_PER_CHANNEL = 5;
+const recentTextsByChannel = new Map<string, Array<{ text: string; ts: number }>>();
+
+function shouldDropAsDuplicate(channelId: string, text: string): boolean {
+  const now = Date.now();
+  const recents = recentTextsByChannel.get(channelId) || [];
+  return recents.some((r) => r.text === text && now - r.ts < RECENT_TEXT_WINDOW_MS);
+}
+
+function recordRecentText(channelId: string, text: string): void {
+  const now = Date.now();
+  const recents = (recentTextsByChannel.get(channelId) || []).filter((r) => now - r.ts < RECENT_TEXT_WINDOW_MS);
+  recents.push({ text, ts: now });
+  while (recents.length > RECENT_TEXT_MAX_PER_CHANNEL) recents.shift();
+  recentTextsByChannel.set(channelId, recents);
+}
+
 // Emoji-name → unicode map for the add_reaction MCP tool. The tool accepts
 // names like "thumbs_up" / "eyes" but Discord.js's msg.react() needs the
 // actual unicode codepoint. Anything not in this map is passed through
@@ -2046,26 +2069,24 @@ export class DiscordChannel implements ChannelAdapter {
       return undefined;
     }
 
-    // #emilio-care: drop verb+event-noun acks that mirror the Emilio chime
-    // subtext. Claudio is told the chime IS the response, but Gemini keeps
-    // emitting a plain "Updated last feeding to 5oz." or "Logged poopy
-    // diaper at 4:00 PM." after the webhook post — duplicate ack. The
-    // pattern is formulaic (action verb + up to 3 modifier words like
-    // "the", "last", "poopy", "wet", "Paden's" + event noun) and only
-    // shows up in this channel.
+    // #emilio-care: drop duplicate-text messages. Claudio reliably emits
+    // the same ack twice per turn — once with `subtext` (intended as the
+    // chime) and once plain (echo). Earlier keyword-based filters caught
+    // most cases but false-positived on Macy's first reply, leaving her
+    // with no acknowledgement. Dedup is precise: same exact text within
+    // 30s in the same channel = drop the second occurrence. The first
+    // message wins (usually the one carrying subtext).
     if (
       DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care' &&
-      text.length < 300 &&
-      /^(Updated|Logged|Recorded|Set|Closed|Opened|Marked|Captured|Saved|Added)\s+([\w'-]+\s+){0,3}(feeding|diaper|nap|sleep|asleep|awake|change|bottle|nursing|formula|pumping|pump)/i.test(
-        text,
-      )
+      shouldDropAsDuplicate(platformId, text)
     ) {
-      log.warn('Dropped Emilio chime echo', {
+      log.warn('Dropped duplicate Emilio message', {
         platformId,
         preview: text.slice(0, 100),
       });
       return undefined;
     }
+    recordRecentText(platformId, text);
 
     // #family-fun pin/label strip: defense-in-depth against the model
     // re-pinning status cards. CLAUDE.local.md forbids `send_message` with
