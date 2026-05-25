@@ -2048,14 +2048,15 @@ export class DiscordChannel implements ChannelAdapter {
 
     // #emilio-care: drop verb+event-noun acks that mirror the Emilio chime
     // subtext. Claudio is told the chime IS the response, but Gemini keeps
-    // emitting a plain "Updated last feeding to 5oz." after the webhook
-    // post — duplicate ack. The pattern is formulaic (Updated/Logged/
-    // Recorded/Set/Closed/Opened + feeding|diaper|nap|sleep|...) and only
+    // emitting a plain "Updated last feeding to 5oz." or "Logged poopy
+    // diaper at 4:00 PM." after the webhook post — duplicate ack. The
+    // pattern is formulaic (action verb + up to 3 modifier words like
+    // "the", "last", "poopy", "wet", "Paden's" + event noun) and only
     // shows up in this channel.
     if (
       DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care' &&
       text.length < 300 &&
-      /^(Updated|Logged|Recorded|Set|Closed|Opened)\s+(the\s+|last\s+)?(feeding|diaper|nap|sleep|asleep|awake|change|bottle)/i.test(
+      /^(Updated|Logged|Recorded|Set|Closed|Opened|Marked|Captured|Saved|Added)\s+([\w'-]+\s+){0,3}(feeding|diaper|nap|sleep|asleep|awake|change|bottle|nursing|formula|pumping|pump)/i.test(
         text,
       )
     ) {
