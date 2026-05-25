@@ -41,27 +41,63 @@ import { buildLastFedSuffix, isNapCloseSubtext, subtextAlreadyEnriched } from '.
 
 const execFileAsync = promisify(execFile);
 
-// Per-channel buffer of recently-delivered message texts (post-transform).
-// Used to dedup duplicate outbounds Claudio sends within a single turn —
-// classically a chime-with-subtext followed by a bare echo of the same
-// text. We compare exact text only; near-duplicates with different phrasing
-// pass through.
+// Per-channel buffer of recently-delivered messages. Used to dedup
+// duplicate outbounds Claudio sends within a single turn — exact duplicates
+// (chime + bare echo of same text) AND supersets where the next message
+// adds another event to the earlier one (e.g. "Logged 3.5oz feeding"
+// followed by "Logged 3.5oz feeding and asleep"). For the superset case
+// the second message is the more comprehensive one and the first becomes
+// redundant — we delete the first from the channel after the second lands.
 const RECENT_TEXT_WINDOW_MS = 30 * 1000;
 const RECENT_TEXT_MAX_PER_CHANNEL = 5;
-const recentTextsByChannel = new Map<string, Array<{ text: string; ts: number }>>();
+interface RecentMessage {
+  text: string;
+  ts: number;
+  platformMsgId: string | null;
+}
+const recentMessagesByChannel = new Map<string, RecentMessage[]>();
 
-function shouldDropAsDuplicate(channelId: string, text: string): boolean {
+function getRecents(channelId: string): RecentMessage[] {
   const now = Date.now();
-  const recents = recentTextsByChannel.get(channelId) || [];
-  return recents.some((r) => r.text === text && now - r.ts < RECENT_TEXT_WINDOW_MS);
+  const fresh = (recentMessagesByChannel.get(channelId) || []).filter((r) => now - r.ts < RECENT_TEXT_WINDOW_MS);
+  recentMessagesByChannel.set(channelId, fresh);
+  return fresh;
 }
 
-function recordRecentText(channelId: string, text: string): void {
-  const now = Date.now();
-  const recents = (recentTextsByChannel.get(channelId) || []).filter((r) => now - r.ts < RECENT_TEXT_WINDOW_MS);
-  recents.push({ text, ts: now });
+function shouldDropAsDuplicate(channelId: string, text: string): boolean {
+  return getRecents(channelId).some((r) => r.text === text);
+}
+
+function firstNWords(text: string, n: number): string {
+  return text.trim().split(/\s+/).slice(0, n).join(' ');
+}
+
+/**
+ * If an earlier short message shares this one's opening phrase and is
+ * shorter overall, treat the earlier as a redundant predecessor — caller
+ * deletes it after delivering this comprehensive one.
+ */
+function findSupersetVictim(channelId: string, text: string): RecentMessage | null {
+  const prefix = firstNWords(text, 5).toLowerCase();
+  if (!prefix) return null;
+  for (const r of getRecents(channelId)) {
+    if (text.length <= r.text.length) continue;
+    if (!r.platformMsgId) continue;
+    if (firstNWords(r.text, 5).toLowerCase() === prefix) return r;
+  }
+  return null;
+}
+
+function recordRecentText(channelId: string, text: string, platformMsgId: string | null = null): void {
+  const recents = getRecents(channelId);
+  recents.push({ text, ts: Date.now(), platformMsgId });
   while (recents.length > RECENT_TEXT_MAX_PER_CHANNEL) recents.shift();
-  recentTextsByChannel.set(channelId, recents);
+  recentMessagesByChannel.set(channelId, recents);
+}
+
+function forgetRecent(channelId: string, platformMsgId: string): void {
+  const recents = (recentMessagesByChannel.get(channelId) || []).filter((r) => r.platformMsgId !== platformMsgId);
+  recentMessagesByChannel.set(channelId, recents);
 }
 
 // Emoji-name → unicode map for the add_reaction MCP tool. The tool accepts
@@ -2086,7 +2122,44 @@ export class DiscordChannel implements ChannelAdapter {
       });
       return undefined;
     }
-    recordRecentText(platformId, text);
+
+    // Superset detection: if an earlier shorter chime is now subsumed by
+    // this comprehensive one (same opening, more content), delete the
+    // earlier one from the channel after this one lands. Today's case:
+    // chime 1 "Logged 3.5oz feeding at 12:15 PM..." followed by chime 2
+    // "Logged 3.5oz feeding at 12:15 PM and asleep at 12:25 PM..." —
+    // chime 2 already covers everything chime 1 said.
+    const supersetVictim =
+      DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care'
+        ? findSupersetVictim(platformId, text)
+        : null;
+    if (supersetVictim?.platformMsgId) {
+      const victimId = supersetVictim.platformMsgId;
+      log.warn('Scheduling delete of superseded chime', {
+        platformId,
+        victim: victimId,
+        victimPreview: supersetVictim.text.slice(0, 80),
+      });
+      forgetRecent(platformId, victimId);
+      // Fire after a short delay so the new message lands first.
+      setTimeout(() => {
+        void (async () => {
+          if (!this.client) return;
+          try {
+            const ch = await this.client.channels.fetch(platformId);
+            if (ch && 'messages' in ch) {
+              const oldMsg = await (ch as TextChannel).messages.fetch(victimId).catch(() => null);
+              if (oldMsg) await oldMsg.delete().catch(() => undefined);
+            }
+          } catch (err) {
+            log.warn('Failed to delete superseded chime', {
+              victimId,
+              err: (err as Error).message,
+            });
+          }
+        })();
+      }, 500);
+    }
 
     // #family-fun pin/label strip: defense-in-depth against the model
     // re-pinning status cards. CLAUDE.local.md forbids `send_message` with
@@ -2158,7 +2231,9 @@ export class DiscordChannel implements ChannelAdapter {
     // Webhook persona routing
     if (content && typeof content.sender === 'string' && WEBHOOK_PERSONAS[content.sender]) {
       const persona = WEBHOOK_PERSONAS[content.sender];
-      return this.sendWebhookMessage(platformId, text, persona.name, persona.avatar);
+      const webhookMsgId = await this.sendWebhookMessage(platformId, text, persona.name, persona.avatar);
+      recordRecentText(platformId, text, webhookMsgId ?? null);
+      return webhookMsgId;
     }
 
     // Label/upsert: edit the existing pinned message if label is set
@@ -2214,7 +2289,9 @@ export class DiscordChannel implements ChannelAdapter {
       }
     }
 
-    return this.sendMessageWithId(platformId, text);
+    const plainMsgId = await this.sendMessageWithId(platformId, text);
+    recordRecentText(platformId, text, plainMsgId ?? null);
+    return plainMsgId;
   }
 
   private async sendMessageWithId(platformId: string, text: string): Promise<string | undefined> {
