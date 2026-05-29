@@ -2139,27 +2139,22 @@ export class DiscordChannel implements ChannelAdapter {
     // with no acknowledgement. Dedup is precise: same exact text within
     // 30s in the same channel = drop the second occurrence. The first
     // message wins (usually the one carrying subtext).
-    if (
-      DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care' &&
-      shouldDropAsDuplicate(platformId, text)
-    ) {
-      log.warn('Dropped duplicate Emilio message', {
+    if (shouldDropAsDuplicate(platformId, text)) {
+      log.warn('Dropped duplicate Claudio message', {
         platformId,
         preview: text.slice(0, 100),
       });
       return undefined;
     }
 
-    // Superset detection: if an earlier shorter chime is now subsumed by
-    // this comprehensive one (same opening, more content), delete the
-    // earlier one from the channel after this one lands. Today's case:
-    // chime 1 "Logged 3.5oz feeding at 12:15 PM..." followed by chime 2
-    // "Logged 3.5oz feeding at 12:15 PM and asleep at 12:25 PM..." —
-    // chime 2 already covers everything chime 1 said.
-    const supersetVictim =
-      DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care'
-        ? findSupersetVictim(platformId, text)
-        : null;
+    // Superset detection: if an earlier shorter Claudio message is now
+    // subsumed by this comprehensive one (same opening, more content),
+    // delete the earlier one from the channel after this one lands.
+    // Originally added for #emilio-care chime echoes; now applies to all
+    // channels because the same model failure shows up in #silverthorne
+    // (status card edits, "I've updated X" / "Apologies, I've fixed X"
+    // pairs where the second supersedes the first).
+    const supersetVictim = findSupersetVictim(platformId, text);
     if (supersetVictim?.platformMsgId) {
       const victimId = supersetVictim.platformMsgId;
       log.warn('Scheduling delete of superseded chime', {

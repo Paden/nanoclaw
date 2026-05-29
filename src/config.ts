@@ -104,7 +104,9 @@ export const DISCORD_REACTIONS_INBOUND: ReactionsMode = resolveReactionsMode();
 export const WEBHOOK_PERSONAS: Record<string, { name: string; avatar?: string }> = {
   Voss: {
     name: 'Voss 🌋',
-    avatar: 'https://i.imgur.com/AMRLnss.png',
+    // Emberclaw Juggernaut form — Spirit → Elemental evolution 2026-05-23.
+    // Image from Paden's https://imgur.com/a/uGJCnc3 (direct).
+    avatar: 'https://i.imgur.com/GNHcKZ2.png',
   },
   Nyx: {
     name: 'Nyx 🌙',
