@@ -2228,6 +2228,51 @@ export class DiscordChannel implements ChannelAdapter {
       }
     }
 
+    // #silverthorne URL-in-status-card scrub. Claudio routinely takes a
+    // pet image URL from chat and pastes it INTO the status card text in
+    // place of the pet's emoji (e.g. "https://i.imgur.com/... **Voss**"
+    // where it should be "🌋 **Voss**"). The URL belongs in the persona
+    // config, not in the rendered message. Replace the URL with the pet's
+    // canonical emoji so the card renders cleanly.
+    if (DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_silverthorne') {
+      const PET_EMOJIS: Record<string, string> = {
+        Voss: '🌋',
+        Nyx: '🌙',
+        Zima: '❄️',
+      };
+      const scrubbed = text.replace(
+        /https?:\/\/\S+\s+\*\*(Voss|Nyx|Zima)\*\*/g,
+        (_, name) => `${PET_EMOJIS[name as keyof typeof PET_EMOJIS]} **${name}**`,
+      );
+      if (scrubbed !== text) {
+        log.warn('Scrubbed inline image URL from silverthorne status card', {
+          platformId,
+        });
+        text = scrubbed;
+      }
+    }
+
+    // #silverthorne addressee rewrite. Claudio routinely greets the wrong
+    // person ("Got it, Danny!" when Paden posted). Detect a household-name
+    // greeting in the opening and rewrite to match the actual inbound
+    // sender. Mirror of the emilio-care subtext rewrite below.
+    if (DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_silverthorne') {
+      const recentSender = getRecentInboundSender(platformId);
+      if (recentSender && EMILIO_HOUSEHOLD.has(recentSender)) {
+        const match = text.match(
+          /^((?:Got it|Apologies|Thanks|Thank you|Hey|Hi|Done|Sure|Okay|Ok|Roger|Noted)[,\s]+)(Paden|Brenda|Danny)([!,.\s])/i,
+        );
+        if (match && match[2] !== recentSender) {
+          log.warn('Rewrote silverthorne addressee', {
+            platformId,
+            wrong: match[2],
+            correct: recentSender,
+          });
+          text = text.replace(match[0], `${match[1]}${recentSender}${match[3]}`);
+        }
+      }
+    }
+
     // #emilio-care attribution + non-household chime suppression. Claudio
     // routinely (a) defaults the chime's leading name to "Paden" regardless
     // of who actually posted, and (b) emits chimes for Macy/non-household
