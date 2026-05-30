@@ -2132,6 +2132,29 @@ export class DiscordChannel implements ChannelAdapter {
       return undefined;
     }
 
+    // #silverthorne: strip trailing "chores list" blocks Claudio keeps
+    // appending to conversational replies. Pattern is a header line like
+    // "Today's chores:" / "Open chores:" / "Remaining chores:" / "Here are
+    // today's chores:" followed by a bullet or numbered list to EOM. Only
+    // strip if there's a real conversational preamble (>40 chars of non-
+    // list content) before the header — otherwise the user actually asked
+    // for the list and we keep it.
+    if (DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_silverthorne') {
+      const choresListHeader =
+        /(^|\n)\s*\*{0,2}_{0,2}\s*(Today['’]s|Open|Remaining|Outstanding|Pending|Here(?:'s| are)(?: the| your)?(?: today's)?)\s+chores?:?\s*_{0,2}\*{0,2}\s*\n+([ \t]*(?:[-*•]|\d+[.)])\s+.+(?:\n|$))+/i;
+      const m = text.match(choresListHeader);
+      if (m && m.index !== undefined) {
+        const preamble = text.slice(0, m.index).trim();
+        if (preamble.length > 40) {
+          log.warn('Stripped appended chores list', {
+            platformId,
+            preview: text.slice(m.index, m.index + 80),
+          });
+          text = preamble;
+        }
+      }
+    }
+
     // #emilio-care: drop duplicate-text messages. Claudio reliably emits
     // the same ack twice per turn — once with `subtext` (intended as the
     // chime) and once plain (echo). Earlier keyword-based filters caught
