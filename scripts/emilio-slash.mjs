@@ -401,6 +401,18 @@ export async function defaultDeps() {
       if (durationMin < 0) {
         return { ok: false, error: `Wake time ${wakeTimestamp} is before start ${startStr}.` };
       }
+      // Sanity guard: a single sleep session >6h is almost always a missed
+      // close from earlier — the row sat open all night and the next wake
+      // command would auto-close it with an inflated duration (seen
+      // 2026-05-29: 20:31 start auto-closed at 04:37 Sat = 486 min, when
+      // the actual first wake was the 22:33 feeding = 122 min). Refuse
+      // and require manual entry so the value can't silently drift.
+      if (durationMin > 360) {
+        return {
+          ok: false,
+          error: `Open session from ${startStr} is ${durationMin} min (>6h) — likely a missed close. Edit Sleep Log row directly with the actual wake time.`,
+        };
+      }
       const sheetRow = idx + 2; // header is row 1; A2 starts at index 0
       await updateRange(SHEET_ID, `Sleep Log!B${sheetRow}`, [[durationMin]], { token });
       return {
