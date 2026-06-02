@@ -2100,6 +2100,60 @@ export class DiscordChannel implements ChannelAdapter {
       .trim();
     if (!text) return undefined;
 
+    // Intra-message paragraph dedup. Gemini-3-flash often emits the same
+    // greeting/ack twice within a single message body — e.g. the opening
+    // "hiii mama ☀️ big stretchhh! ga ga ga🧡" is repeated as a near-
+    // identical closing line, with the log narrative in between (seen
+    // 2026-06-02 in #emilio-care). Our message-level dedup catches
+    // duplicate separate messages but not duplicated paragraphs within
+    // one. Split on blank lines, compare each paragraph's normalized
+    // word-set Jaccard against earlier paragraphs, drop near-duplicates.
+    {
+      const paragraphs = text.split(/\n\s*\n/);
+      if (paragraphs.length > 1) {
+        const tokenize = (s: string): Set<string> => {
+          const norm = s
+            .toLowerCase()
+            .replace(/\p{Extended_Pictographic}/gu, '')
+            .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+            .trim();
+          return new Set(norm.split(/\s+/).filter((w) => w.length > 1));
+        };
+        const sets = paragraphs.map(tokenize);
+        const keep: number[] = [];
+        for (let i = 0; i < paragraphs.length; i++) {
+          let isDup = false;
+          for (const j of keep) {
+            const a = sets[i];
+            const b = sets[j];
+            if (a.size < 3 || b.size < 3) continue;
+            let inter = 0;
+            for (const w of a) if (b.has(w)) inter++;
+            const union = a.size + b.size - inter;
+            const jaccard = union === 0 ? 0 : inter / union;
+            if (jaccard >= 0.7) {
+              isDup = true;
+              break;
+            }
+          }
+          if (!isDup) keep.push(i);
+        }
+        if (keep.length < paragraphs.length) {
+          const before = text;
+          text = keep
+            .map((i) => paragraphs[i])
+            .join('\n\n')
+            .trim();
+          log.warn('Stripped duplicate paragraph(s) within message', {
+            platformId,
+            removed: paragraphs.length - keep.length,
+            preview: before.slice(0, 120),
+          });
+        }
+      }
+    }
+    if (!text) return undefined;
+
     // Drop trailing "I've completed X" / "What was done:" style completion
     // summaries. The container/CLAUDE.md tells the agent the deliverable IS
     // the summary, but Gemini-3-flash repeatedly emits a second message
