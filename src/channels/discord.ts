@@ -108,10 +108,21 @@ function forgetRecent(channelId: string, platformMsgId: string): void {
 const lastInboundByChannel = new Map<string, { senderName: string; ts: number }>();
 const ATTRIBUTION_WINDOW_MS = 90 * 1000;
 const EMILIO_HOUSEHOLD = new Set(['Paden', 'Brenda', 'Danny']);
+// Map Discord user IDs → canonical household name. Display names like
+// "Br3nd9" don't match the EMILIO_HOUSEHOLD set ("Brenda"), so every
+// Brenda message was triggering the non-household chime suppression
+// (seen 2026-06-02: every chime subtext logged as suppressed even
+// though Brenda IS household). Resolve to canonical at record time.
+const HOUSEHOLD_BY_DISCORD_ID: Record<string, string> = {
+  '181867944404320256': 'Paden',
+  '350815183804825600': 'Brenda',
+  '280744944358916097': 'Danny',
+};
 
-function recordInboundSender(channelId: string, senderName: string): void {
+function recordInboundSender(channelId: string, senderName: string, discordUserId?: string): void {
   if (!senderName) return;
-  lastInboundByChannel.set(channelId, { senderName, ts: Date.now() });
+  const canonical = discordUserId && HOUSEHOLD_BY_DISCORD_ID[discordUserId];
+  lastInboundByChannel.set(channelId, { senderName: canonical || senderName, ts: Date.now() });
 }
 
 function getRecentInboundSender(channelId: string): string | null {
@@ -299,7 +310,7 @@ export class DiscordChannel implements ChannelAdapter {
       // adapter below to correct Claudio's wrong-attribution habit (he
       // routinely writes "Paden" in chime subtexts regardless of who
       // actually triggered the log).
-      recordInboundSender(channelId, senderName);
+      recordInboundSender(channelId, senderName, message.author.id);
 
       log.info('Discord message stored', { channelId, chatName, sender: senderName });
     });
