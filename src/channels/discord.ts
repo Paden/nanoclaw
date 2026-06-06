@@ -2405,6 +2405,14 @@ export class DiscordChannel implements ChannelAdapter {
       }
     }
 
+    // Snapshot the body BEFORE subtext is appended. Dedup runs against the
+    // pre-subtext body so a chime ("text\n-# subtext") and a same-text plain
+    // echo collide on `bodyForDedup` and the second is dropped. Without this,
+    // every Claudio chime in #emilio-care is followed 1-2s later by an
+    // identical sender-less echo that slipped through dedup because the
+    // recorded chime text carried the appended subtext caption.
+    const bodyForDedup = text;
+
     // Append `-# subtext` for Discord small-text caption (e.g. "Paden · 3oz · 6:15 PM"
     // under an Emilio chime). Only added when the agent passes the dedicated
     // `subtext` field on send_message; we don't try to detect or auto-format.
@@ -2431,7 +2439,7 @@ export class DiscordChannel implements ChannelAdapter {
     if (content && typeof content.sender === 'string' && WEBHOOK_PERSONAS[content.sender]) {
       const persona = WEBHOOK_PERSONAS[content.sender];
       const webhookMsgId = await this.sendWebhookMessage(platformId, text, persona.name, persona.avatar);
-      recordRecentText(platformId, text, webhookMsgId ?? null);
+      recordRecentText(platformId, bodyForDedup, webhookMsgId ?? null);
       return webhookMsgId;
     }
 
@@ -2489,7 +2497,7 @@ export class DiscordChannel implements ChannelAdapter {
     }
 
     const plainMsgId = await this.sendMessageWithId(platformId, text);
-    recordRecentText(platformId, text, plainMsgId ?? null);
+    recordRecentText(platformId, bodyForDedup, plainMsgId ?? null);
     return plainMsgId;
   }
 
