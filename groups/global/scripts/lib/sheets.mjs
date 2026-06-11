@@ -36,9 +36,16 @@ export async function getAccessToken({
     grant_type: 'refresh_token',
   });
 
-  // Retry on transient network failures. Host-side slash commands run on a
-  // residential network where Wifi/DNS blips cause ETIMEDOUT/ECONNRESET on
-  // the OAuth endpoint, killing the whole command with a stack trace.
+  // Retry on transient network failures AND on transient `invalid_grant`
+  // responses. Residential network blips cause ETIMEDOUT/ECONNRESET; Google's
+  // OAuth endpoint also returns `invalid_grant` transiently under load even
+  // when the refresh_token is valid (seen 2026-06-10: 3 failures spaced
+  // hours apart with retries succeeding seconds later). Without retrying
+  // on `invalid_grant`, slash commands die with a misleading "Token has
+  // been expired or revoked" stack trace.
+  //
+  // If the token IS truly revoked, all 3 attempts fail identically and we
+  // bubble the error — re-auth via scripts/auth-google.mjs.
   let lastErr;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -53,7 +60,7 @@ export async function getAccessToken({
       return data.access_token;
     } catch (err) {
       lastErr = err;
-      if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
     }
   }
   throw lastErr;
