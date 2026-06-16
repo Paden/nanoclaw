@@ -2361,6 +2361,37 @@ export class DiscordChannel implements ChannelAdapter {
       }
     }
 
+    // #emilio-care chime-rescue: post-compaction, Claudio sometimes loses
+    // the `send_message({sender:"Emilio", subtext:"..."})` example shape
+    // and writes plain messages with the subtext line baked into the body:
+    //   "Logged. He had a 3oz bottle at 1:15 PM.\n\nEmilio · 3oz Bottle · 1:15 PM"
+    // Detect that tail, peel it off, and promote the message to a proper
+    // webhook chime so the avatar + grey subtext at least render. Voice in
+    // the body stays whatever Claudio wrote (a session reset is the real
+    // voice fix); this is the structural belt-and-suspenders.
+    if (
+      DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care' &&
+      content &&
+      typeof content === 'object' &&
+      typeof content.sender !== 'string' &&
+      (typeof content.subtext !== 'string' || !content.subtext.trim())
+    ) {
+      const m = text.match(/\n+\s*Emilio\s*·\s*([^\n]+?)\s*$/);
+      if (m) {
+        const subtextLine = m[1].trim();
+        const body = text.slice(0, m.index).trim();
+        if (body && subtextLine) {
+          log.warn('Promoted body-embedded Emilio chime line to proper chime', {
+            platformId,
+            subtextPreview: subtextLine.slice(0, 60),
+          });
+          text = body;
+          (content as Record<string, unknown>).sender = 'Emilio';
+          (content as Record<string, unknown>).subtext = subtextLine;
+        }
+      }
+    }
+
     // #emilio-care attribution + non-household chime suppression. Claudio
     // routinely (a) defaults the chime's leading name to "Paden" regardless
     // of who actually posted, and (b) emits chimes for Macy/non-household
