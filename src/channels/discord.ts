@@ -1829,8 +1829,16 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-slash.mjs');
     let stdout: string;
     try {
+      // 60s timeout: emilio-slash does two passes of Sheets work (the
+      // action itself, then a build_status_card render that re-reads
+      // Feedings/Diapers/Sleep Log). Under network/API load this routinely
+      // approaches 30s. Killing at 30s produces a stderr-less "Command
+      // failed" and — because the host kept the previous execFile pending
+      // — the very next interaction's deferReply often misses Discord's
+      // 3-second window (Unknown interaction). Doubling the budget so a
+      // single slow Sheets pass doesn't poison the next slash command.
       const res = await execFileAsync('node', [scriptPath, interaction.commandName, userId, ...args], {
-        timeout: 30_000,
+        timeout: 60_000,
         maxBuffer: 1_000_000,
       });
       stdout = res.stdout;
