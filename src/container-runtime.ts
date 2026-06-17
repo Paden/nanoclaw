@@ -36,9 +36,14 @@ export function stopContainer(name: string): void {
 /** Ensure the container runtime is running, starting it if needed. */
 export function ensureContainerRuntimeRunning(): void {
   try {
+    // `docker info` queries the daemon and on Docker Desktop / macOS can
+    // routinely take 10-15s when there are many containers or when the
+    // VM is under load. 10s was too tight — hit ETIMEDOUT at 01:56-02:02
+    // and crash-looped the host through 5 backoffs. 30s gives Docker
+    // Desktop room without making genuine outages much slower to detect.
     execSync(`${CONTAINER_RUNTIME_BIN} info`, {
       stdio: 'pipe',
-      timeout: 10000,
+      timeout: 30000,
     });
     log.debug('Container runtime already running');
   } catch (err) {
