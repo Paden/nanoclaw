@@ -39,11 +39,14 @@ export function ensureContainerRuntimeRunning(): void {
     // `docker info` queries the daemon and on Docker Desktop / macOS can
     // routinely take 10-15s when there are many containers or when the
     // VM is under load. 10s was too tight — hit ETIMEDOUT at 01:56-02:02
-    // and crash-looped the host through 5 backoffs. 30s gives Docker
-    // Desktop room without making genuine outages much slower to detect.
+    // and crash-looped the host through 5 backoffs. 30s wasn't enough
+    // when load avg was 280+ (couldn't even spawnSync /bin/sh inside
+    // 30s). 90s rides out kernel scheduling delay during system-wide
+    // load spikes while still detecting a real Docker outage in a
+    // reasonable window.
     execSync(`${CONTAINER_RUNTIME_BIN} info`, {
       stdio: 'pipe',
-      timeout: 30000,
+      timeout: 90000,
     });
     log.debug('Container runtime already running');
   } catch (err) {
