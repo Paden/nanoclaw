@@ -23,20 +23,10 @@ import { log } from './log.js';
 // loop), those paths don't exist — we need to point at the host-side
 // equivalents. Set the env vars once at module load.
 if (!process.env.GOOGLE_OAUTH_CREDENTIALS) {
-  process.env.GOOGLE_OAUTH_CREDENTIALS = path.resolve(
-    process.cwd(),
-    'data',
-    'google-calendar',
-    'gcp-oauth.keys.json',
-  );
+  process.env.GOOGLE_OAUTH_CREDENTIALS = path.resolve(process.cwd(), 'data', 'google-calendar', 'gcp-oauth.keys.json');
 }
 if (!process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH) {
-  process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH = path.join(
-    os.homedir(),
-    '.config',
-    'google-calendar-mcp',
-    'tokens.json',
-  );
+  process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH = path.join(os.homedir(), '.config', 'google-calendar-mcp', 'tokens.json');
 }
 
 // Lazy-loaded via dynamic import. The .mjs modules don't ship .d.ts, so we
@@ -126,9 +116,21 @@ export async function reconcileNow(): Promise<{
     if (id) validChoreIds.add(id);
   }
 
-  // Pull today's Chore Log rows. Columns: [timestamp, chore_id, name, done_by, duration_min, status, notes].
+  // Pull today's Chore Log rows. Canonical columns per header row 1:
+  //   [timestamp, chore_id, name, done_by, duration_min, status, notes]
+  // BUT Claudio sometimes writes a shifted layout where done_by lands in
+  // column C and name lands further right (seen 2026-06-18: Paden's 4
+  // chores logged with "Paden" in col[2] and "23" in col[3], so the old
+  // `row[3] = doneBy` read got the duration instead of the player and
+  // reconciliation silently skipped them as 'unknown player'). Resolve
+  // done_by by scanning columns 2 and 3 for a VALID_PLAYERS hit, and
+  // resolve status from whichever column carries an 'invalid' marker.
   const logRows = await sheets.readRange(SILVERTHORNE_SHEET, 'Chore Log!A:G', { token });
-  const todays = logRows.filter((r) => String(r[0] || '').startsWith(today) && String(r[5] || '') !== 'invalid');
+  const todays = logRows.filter((r) => {
+    if (!String(r[0] || '').startsWith(today)) return false;
+    // 'invalid' marker can land in col 4 (new shifted layout) or col 5 (old).
+    return ![3, 4, 5].some((i) => String(r[i] || '') === 'invalid');
+  });
 
   let scanned = 0;
   let registered = 0;
@@ -137,7 +139,10 @@ export async function reconcileNow(): Promise<{
   for (const row of todays) {
     scanned++;
     const choreId = String(row[1] || '').trim();
-    const doneBy = String(row[3] || '').trim();
+    // Player can be in col[3] (canonical) or col[2] (shifted). Pick whichever
+    // is a known household member; bias toward col[3] when both match.
+    const candidates = [String(row[3] || '').trim(), String(row[2] || '').trim()];
+    const doneBy = candidates.find((c) => VALID_PLAYERS.has(c)) || '';
     if (!choreId || !doneBy) continue;
     // Accepted: registered chore-ids from the Chores tab, OR `oneoff_*`
     // chore-ids (which only get written after explicit user confirmation
