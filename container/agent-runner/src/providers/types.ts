@@ -89,4 +89,13 @@ export type ProviderEvent =
    * event (tool call, thinking, partial message, anything) so the
    * poll-loop's idle timer stays honest during long tool runs.
    */
-  | { type: 'activity' };
+  | { type: 'activity' }
+  /**
+   * The SDK auto-compacted the conversation this turn. The next `result`
+   * event reflects the agent's behavior on the post-compaction context.
+   * Empirically (see src/session-rotate.ts in the host), the first
+   * post-compaction result can be empty when the JSONL transcript has
+   * grown past ~5 MB — poll-loop uses this signal to skip markCompleted
+   * on that empty result so the host re-tries on the next sweep.
+   */
+  | { type: 'compact_boundary'; preTokens?: number };

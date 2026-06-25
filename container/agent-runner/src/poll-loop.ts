@@ -362,6 +362,12 @@ async function processQuery(
     })();
   }, ACTIVE_POLL_INTERVAL_MS);
 
+  // Tracks whether the SDK ran a compaction this turn. Used to detect the
+  // compaction-empty-output trap: if compaction happened and the very next
+  // result has no text, the agent silently dropped the user's message —
+  // we leave it pending so the host re-tries (and pre-emptive size-based
+  // rotation in host-sweep eventually clears the bloated transcript).
+  let compactionThisTurn = false;
   try {
     for await (const event of query.events) {
       handleEvent(event, routing);
@@ -376,7 +382,23 @@ async function processQuery(
         // effectively orphaned and the next message started a blank
         // Claude session with no prior context.
         setContinuation(providerName, event.continuation);
+      } else if (event.type === 'compact_boundary') {
+        compactionThisTurn = true;
+        const detail = event.preTokens ? ` (${event.preTokens.toLocaleString()} tokens compacted)` : '';
+        log(`Context compacted${detail}.`);
       } else if (event.type === 'result') {
+        const isEmpty = !event.text || event.text.trim().length === 0;
+        if (isEmpty && compactionThisTurn) {
+          // Compaction-empty-output trap. Don't markCompleted — leave the
+          // message pending so the host's next sweep re-claims it. The
+          // pre-emptive size-based rotation in src/host-sweep.ts will
+          // clear the bloated transcript before this hits more than a few
+          // times.
+          log(
+            `SESSION_NEEDS_RESET reason=compaction-empty-output — leaving ${initialBatchIds.length} message(s) pending for host retry`,
+          );
+          continue;
+        }
         // A result — with or without text — means the turn is done. Mark
         // the initial batch completed now so the host sweep doesn't see
         // stale 'processing' claims while the query stays open for

@@ -49,6 +49,17 @@ export const ONECLI_URL = process.env.ONECLI_URL || envConfig.ONECLI_URL;
 export const ONECLI_API_KEY = process.env.ONECLI_API_KEY || envConfig.ONECLI_API_KEY;
 export const MAX_MESSAGES_PER_PROMPT = Math.max(1, parseInt(process.env.MAX_MESSAGES_PER_PROMPT || '10', 10) || 10);
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep container alive after last result
+// SDK-session rotation threshold. When the agent's .claude-shared JSONL
+// transcripts exceed this size, host-sweep rotates the session (archives
+// transcripts + clears continuation row + restarts the container) before
+// compaction starts producing empty agent output. 5 MB ≈ the 67k-token
+// compaction trigger we've been hitting; rotating below that keeps
+// compaction healthy. Per-group long-term memory (CLAUDE.local.md,
+// conversations/) is preserved.
+export const SESSION_JSONL_ROTATE_MB = Math.max(
+  1,
+  parseInt(process.env.SESSION_JSONL_ROTATE_MB || '5', 10) || 5,
+);
 export const MAX_CONCURRENT_CONTAINERS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5);
 
 function escapeRegex(str: string): string {

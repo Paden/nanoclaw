@@ -1,4 +1,6 @@
 import { registerResource } from '../crud.js';
+import { getSession } from '../../db/sessions.js';
+import { rotateSession, jsonlBytesForSession } from '../../session-rotate.js';
 
 registerResource({
   name: 'session',
@@ -43,4 +45,31 @@ registerResource({
     { name: 'created_at', type: 'string', description: 'Auto-set.', generated: true },
   ],
   operations: { list: 'open', get: 'open' },
+  customOperations: {
+    reset: {
+      access: 'approval',
+      description:
+        "Reset a session's SDK state to recover from the compaction-empty-output trap. " +
+        'Kills the running container, archives the .claude-shared/projects/*.jsonl transcripts, ' +
+        'and clears the continuation:claude row in outbound.db so the next message spawns a brand-new SDK session. ' +
+        'Per-group long-term memory (CLAUDE.local.md, conversations/) is preserved. ' +
+        'Use --id <session-id>. host-sweep also auto-rotates when transcripts exceed SESSION_JSONL_ROTATE_MB (default 5).',
+      handler: async (args) => {
+        const id = args.id as string;
+        if (!id) throw new Error('--id is required');
+        const session = getSession(id);
+        if (!session) throw new Error(`No session: ${id}`);
+        const beforeBytes = jsonlBytesForSession(session.agent_group_id, session.id);
+        const outcome = rotateSession(session.agent_group_id, session.id, 'manual via ncl');
+        return {
+          sessionId: session.id,
+          agentGroupId: session.agent_group_id,
+          containerKilled: outcome.containerKilled,
+          archivedJsonls: outcome.archivedJsonls.length,
+          continuationDeleted: outcome.continuationDeleted,
+          jsonlMbBefore: Math.round((beforeBytes / (1024 * 1024)) * 10) / 10,
+        };
+      },
+    },
+  },
 });

@@ -47,6 +47,8 @@ import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbe
 import { isContainerRunning, killContainer, wakeContainer } from './container-runner.js';
 import type { Session } from './types.js';
 import { reconcileWordleCoinsTick } from './wordle-coin-reconciliation.js';
+import { jsonlBytesForSession, rotateSession } from './session-rotate.js';
+import { SESSION_JSONL_ROTATE_MB } from './config.js';
 
 /**
  * SQLite TIMESTAMP columns store UTC without a timezone marker. Date.parse
@@ -172,6 +174,28 @@ async function sweepSession(session: Session): Promise<void> {
   }
 
   try {
+    // 0. Pre-emptive SDK-session rotation. When the .claude-shared JSONL
+    // transcripts exceed SESSION_JSONL_ROTATE_MB, compaction starts
+    // producing empty agent output (see src/session-rotate.ts comment for
+    // the full failure mode). Rotate before that happens. Long-term
+    // per-group memory (CLAUDE.local.md, conversations/) is preserved.
+    // Skip the rest of this session's sweep iteration after rotation —
+    // there's no container, the message queue is fine where it is, and
+    // the next sweep tick will wake a fresh container with a clean
+    // session id.
+    const jsonlBytes = jsonlBytesForSession(agentGroup.id, session.id);
+    const thresholdBytes = SESSION_JSONL_ROTATE_MB * 1024 * 1024;
+    if (jsonlBytes > thresholdBytes) {
+      log.info('Pre-emptive session rotation triggered', {
+        sessionId: session.id,
+        agentGroupId: agentGroup.id,
+        jsonlMb: Math.round((jsonlBytes / (1024 * 1024)) * 10) / 10,
+        thresholdMb: SESSION_JSONL_ROTATE_MB,
+      });
+      rotateSession(agentGroup.id, session.id, `jsonl-size:${jsonlBytes}>threshold:${thresholdBytes}`);
+      return;
+    }
+
     // 1. Sync processing_ack → messages_in status
     if (outDb) {
       syncProcessingAcks(inDb, outDb);
