@@ -62,11 +62,7 @@ export function jsonlBytesForSession(agentGroupId: string, sessionId: string): n
  * (skips the kill step) and when no JSONLs exist (no-op archive).
  * Returns details for logging/auditing.
  */
-export function rotateSession(
-  agentGroupId: string,
-  sessionId: string,
-  reason: string,
-): RotationOutcome {
+export function rotateSession(agentGroupId: string, sessionId: string, reason: string): RotationOutcome {
   const outcome: RotationOutcome = {
     containerKilled: false,
     archivedJsonls: [],

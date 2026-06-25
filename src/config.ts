@@ -56,10 +56,7 @@ export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10);
 // compaction trigger we've been hitting; rotating below that keeps
 // compaction healthy. Per-group long-term memory (CLAUDE.local.md,
 // conversations/) is preserved.
-export const SESSION_JSONL_ROTATE_MB = Math.max(
-  1,
-  parseInt(process.env.SESSION_JSONL_ROTATE_MB || '5', 10) || 5,
-);
+export const SESSION_JSONL_ROTATE_MB = Math.max(1, parseInt(process.env.SESSION_JSONL_ROTATE_MB || '5', 10) || 5);
 export const MAX_CONCURRENT_CONTAINERS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5);
 
 function escapeRegex(str: string): string {
