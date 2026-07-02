@@ -492,6 +492,15 @@ function isDuplicateOfPriorSend(closing: string, priorTexts: string[]): boolean 
 function dispatchResultText(text: string, routing: RoutingContext, turnBaselineSeq: number): { sent: number; hasUnwrapped: boolean } {
   const MESSAGE_RE = /<message\s+to="([^"]+)"\s*>([\s\S]*?)<\/message>/g;
 
+  // Snapshot prior send_message texts once for the whole dispatch. Used to
+  // suppress any wrapped <message> block that duplicates a chime the agent
+  // already sent this turn via MCP (webhook or plain). Without this, an
+  // Emilio chime followed by a Claudio <message to="…">same body</message>
+  // would deliver both — the double-post pattern that has resurfaced 5
+  // times through 2026-05 → 2026-07 no matter how the model varies its
+  // exact wording.
+  const priorSendTexts = getChatTextsAfter(turnBaselineSeq);
+
   let match: RegExpExecArray | null;
   let sent = 0;
   let lastIndex = 0;
@@ -509,6 +518,17 @@ function dispatchResultText(text: string, routing: RoutingContext, turnBaselineS
     if (!dest) {
       log(`Unknown destination in <message to="${toName}">, dropping block`);
       scratchpadParts.push(`[dropped: unknown destination "${toName}"] ${body}`);
+      continue;
+    }
+    // Suppress the wrapped block if it duplicates something the agent
+    // already sent via MCP send_message this turn (e.g. an Emilio chime
+    // whose body Claudio also echoes as a wrapped closing message). This
+    // is the same dedup we already do for unwrapped scratchpad, extended
+    // to wrapped blocks — the failure mode is identical.
+    if (priorSendTexts.length > 0 && isDuplicateOfPriorSend(body, priorSendTexts)) {
+      log(
+        `[dispatch] suppressed <message to="${toName}"> block (${body.length} chars) — duplicates a prior send_message this turn`,
+      );
       continue;
     }
     sendToDestination(dest, body, routing);
@@ -529,8 +549,7 @@ function dispatchResultText(text: string, routing: RoutingContext, turnBaselineS
   // subprocess, so we read prior message texts from the shared
   // outbound DB rather than tracking in-process.
   if (sent === 0 && scratchpad) {
-    const priorTexts = getChatTextsAfter(turnBaselineSeq);
-    if (priorTexts.length > 0 && isDuplicateOfPriorSend(scratchpad, priorTexts)) {
+    if (priorSendTexts.length > 0 && isDuplicateOfPriorSend(scratchpad, priorSendTexts)) {
       log(
         `[scratchpad] suppressed implicit closing text (${scratchpad.length} chars) — duplicates a prior send_message this turn`,
       );
