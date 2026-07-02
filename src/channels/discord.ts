@@ -2119,6 +2119,19 @@ export class DiscordChannel implements ChannelAdapter {
       .trim();
     if (!text) return undefined;
 
+    // Strip auto-appended signature footers. Seen 2026-07-02 in
+    // #emilio-care: every ack ended with "\n\n**Claudio Portillo**",
+    // which broke exact-match dedup because the chime carried the
+    // signature but the plain echo didn't. Scoped to a known allow-list
+    // (Claudio, Emilio; with or without "Portillo") to avoid stripping
+    // legitimate trailing bold pet names in #silverthorne like Voss/Nyx/
+    // Zima. Also handles em-dash sign-offs like "— Claudio".
+    text = text
+      .replace(/\n+\s*\*\*(?:Claudio|Emilio)(?:\s+Portillo)?\*\*\s*$/, '')
+      .replace(/\n+\s*[—–-]\s*(?:Claudio|Emilio)(?:\s+Portillo)?\s*$/, '')
+      .trim();
+    if (!text) return undefined;
+
     // Intra-message paragraph dedup. Gemini-3-flash often emits the same
     // greeting/ack twice within a single message body — e.g. the opening
     // "hiii mama ☀️ big stretchhh! ga ga ga🧡" is repeated as a near-
