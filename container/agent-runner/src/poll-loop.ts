@@ -187,7 +187,15 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
     // can stamp it on outbound rows — needed for a2a return-path routing.
     setCurrentInReplyTo(routing.inReplyTo);
     try {
-      const result = await processQuery(query, routing, processingIds, config.providerName, turnBaselineSeq);
+      const processingBatch = keep.filter((m) => processingIds.includes(m.id));
+      const result = await processQuery(
+        query,
+        routing,
+        processingIds,
+        config.providerName,
+        turnBaselineSeq,
+        processingBatch,
+      );
       if (result.continuation && result.continuation !== continuation) {
         continuation = result.continuation;
         setContinuation(config.providerName, continuation);
@@ -269,6 +277,7 @@ async function processQuery(
   initialBatchIds: string[],
   providerName: string,
   turnBaselineSeq: number,
+  initialBatch: MessageInRow[] = [],
 ): Promise<QueryResult> {
   let queryContinuation: string | undefined;
   let done = false;
@@ -388,16 +397,47 @@ async function processQuery(
         log(`Context compacted${detail}.`);
       } else if (event.type === 'result') {
         const isEmpty = !event.text || event.text.trim().length === 0;
-        if (isEmpty && compactionThisTurn) {
-          // Compaction-empty-output trap. Don't markCompleted — leave the
-          // message pending so the host's next sweep re-claims it. The
-          // pre-emptive size-based rotation in src/host-sweep.ts will
-          // clear the bloated transcript before this hits more than a few
-          // times.
-          log(
-            `SESSION_NEEDS_RESET reason=compaction-empty-output — leaving ${initialBatchIds.length} message(s) pending for host retry`,
-          );
-          continue;
+        if (isEmpty) {
+          // Empty result is suspicious for chat messages — the agent should
+          // reply, ack, or emit '[no-reply]' as text. A truly-empty result
+          // means the SDK returned nothing (silent error, timeout, hung
+          // stream, post-compaction dropout). Two guards:
+          //
+          //   1. compaction-empty-output trap: seen when JSONL transcripts
+          //      grow past ~5 MB. Host-sweep pre-emptively rotates at that
+          //      size (see src/session-rotate.ts) — leaving the message
+          //      pending here lets the fresh session re-process it.
+          //
+          //   2. non-compaction empty-chat trap: seen 2026-07-05 when
+          //      Paden asked "change the 2am feeding to 2:30am" — session
+          //      was tiny (127 KB), no compaction, but the agent returned
+          //      nothing. The message was silently marked completed and
+          //      the user got no response.
+          //
+          // Retry pending chat rows that have tries < 3. Non-chat rows
+          // (scheduled tasks) legitimately produce empty results, so we
+          // still mark those completed.
+          const retriable: string[] = [];
+          const nonRetriable: string[] = [];
+          for (const msg of initialBatch) {
+            const isChat = msg.kind === 'chat' || msg.kind === 'chat-sdk';
+            if (isChat && (msg.tries ?? 0) < 3) {
+              retriable.push(msg.id);
+            } else {
+              nonRetriable.push(msg.id);
+            }
+          }
+          if (retriable.length > 0) {
+            log(
+              `SESSION_NEEDS_INVESTIGATE reason=empty-output-chat compaction=${compactionThisTurn} — ` +
+                `leaving ${retriable.length} chat message(s) pending for host retry, ` +
+                `marking ${nonRetriable.length} non-chat/exhausted as completed`,
+            );
+            if (nonRetriable.length > 0) markCompleted(nonRetriable);
+            continue;
+          }
+          // No chat rows to retry (all tasks, or all past retry cap) — fall
+          // through and mark everything completed like a normal empty turn.
         }
         // A result — with or without text — means the turn is done. Mark
         // the initial batch completed now so the host sweep doesn't see
