@@ -105,8 +105,11 @@ function forgetRecent(channelId: string, platformMsgId: string): void {
 // to "Paden" in the chime subtext regardless of who actually posted). We
 // rewrite the subtext name to match the actual sender, and strip the
 // chime entirely when the sender isn't a household parent.
-const lastInboundByChannel = new Map<string, { senderName: string; ts: number }>();
+const lastInboundByChannel = new Map<string, { senderName: string; ts: number; platformMsgId?: string }>();
 const ATTRIBUTION_WINDOW_MS = 90 * 1000;
+// Auto-react tracking: message IDs we've already ✅'d so a follow-up plain
+// message in the same turn doesn't re-react.
+const autoReactedInbound = new Set<string>();
 const EMILIO_HOUSEHOLD = new Set(['Paden', 'Brenda', 'Danny']);
 // Map Discord user IDs → canonical household name. Display names like
 // "Br3nd9" don't match the EMILIO_HOUSEHOLD set ("Brenda"), so every
@@ -119,10 +122,19 @@ const HOUSEHOLD_BY_DISCORD_ID: Record<string, string> = {
   '280744944358916097': 'Danny',
 };
 
-function recordInboundSender(channelId: string, senderName: string, discordUserId?: string): void {
+function recordInboundSender(
+  channelId: string,
+  senderName: string,
+  discordUserId?: string,
+  platformMsgId?: string,
+): void {
   if (!senderName) return;
   const canonical = discordUserId && HOUSEHOLD_BY_DISCORD_ID[discordUserId];
-  lastInboundByChannel.set(channelId, { senderName: canonical || senderName, ts: Date.now() });
+  lastInboundByChannel.set(channelId, {
+    senderName: canonical || senderName,
+    ts: Date.now(),
+    platformMsgId,
+  });
 }
 
 function getRecentInboundSender(channelId: string): string | null {
@@ -130,6 +142,14 @@ function getRecentInboundSender(channelId: string): string | null {
   if (!hit) return null;
   if (Date.now() - hit.ts > ATTRIBUTION_WINDOW_MS) return null;
   return hit.senderName;
+}
+
+/** Returns the recent inbound msg-id if within the attribution window. */
+function getRecentInboundMsgId(channelId: string): string | null {
+  const hit = lastInboundByChannel.get(channelId);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > ATTRIBUTION_WINDOW_MS) return null;
+  return hit.platformMsgId || null;
 }
 
 // Emoji-name → unicode map for the add_reaction MCP tool. The tool accepts
@@ -310,7 +330,7 @@ export class DiscordChannel implements ChannelAdapter {
       // adapter below to correct Claudio's wrong-attribution habit (he
       // routinely writes "Paden" in chime subtexts regardless of who
       // actually triggered the log).
-      recordInboundSender(channelId, senderName, message.author.id);
+      recordInboundSender(channelId, senderName, message.author.id, msgId);
 
       log.info('Discord message stored', { channelId, chatName, sender: senderName });
     });
@@ -2550,6 +2570,50 @@ export class DiscordChannel implements ChannelAdapter {
 
     const plainMsgId = await this.sendMessageWithId(platformId, text);
     recordRecentText(platformId, bodyForDedup, plainMsgId ?? null);
+
+    // #emilio-care non-household auto-react. Household members (Paden,
+    // Brenda, Danny) get an Emilio webhook chime that makes their log
+    // visually obvious; non-household senders (Macy, guests) get only a
+    // plain Claudio text reply per the CLAUDE.local.md rule ("chime is
+    // for the parents' at-a-glance feed"). In a busy channel the plain
+    // reply is easy to miss — it scrolls in as a separate message with
+    // no attachment to the sender's original. Add a ✅ reaction on the
+    // non-household inbound so the sender has a visual confirmation on
+    // THEIR message that Claudio picked it up (seen 2026-07-08: Macy
+    // posted 13 logs, all acked in text, but she couldn't tell without
+    // scrolling through the channel).
+    if (DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care' && plainMsgId) {
+      const recentSender = getRecentInboundSender(platformId);
+      const recentMsgId = getRecentInboundMsgId(platformId);
+      if (recentSender && !EMILIO_HOUSEHOLD.has(recentSender) && recentMsgId && !autoReactedInbound.has(recentMsgId)) {
+        autoReactedInbound.add(recentMsgId);
+        // Cap the set — old ids don't need to linger.
+        if (autoReactedInbound.size > 500) {
+          const first = autoReactedInbound.values().next().value;
+          if (first) autoReactedInbound.delete(first);
+        }
+        try {
+          const ch = await this.client?.channels.fetch(platformId);
+          if (ch && 'messages' in ch) {
+            const msg = await (ch as TextChannel).messages.fetch(recentMsgId);
+            await msg.react('✅');
+            log.info('Auto-reacted ✅ on non-household inbound', {
+              platformId,
+              recentSender,
+              inboundMsgId: recentMsgId,
+            });
+          }
+        } catch (err) {
+          log.warn('Failed to auto-react on non-household inbound', {
+            platformId,
+            recentSender,
+            inboundMsgId: recentMsgId,
+            err,
+          });
+        }
+      }
+    }
+
     return plainMsgId;
   }
 
