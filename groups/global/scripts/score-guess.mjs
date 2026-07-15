@@ -58,7 +58,7 @@ export async function scoreGuessForPlayer(player, rawGuess, deps = {}) {
   let todayRows;
   try {
     const t = providedToken ?? (await getAccessToken());
-    todayRows = await readRangeFn(PORTILLO_GAMES_SHEET, 'Wordle Today!A2:C100', { token: t });
+    todayRows = await readRangeFn(PORTILLO_GAMES_SHEET, 'Wordle Today!A2:C', { token: t });
     deps._token = t; // share token for downstream calls
   } catch (err) {
     if (/Unable to parse range|404/.test(err.message)) {
@@ -179,7 +179,7 @@ export async function getStatusForPlayer(player, deps = {}) {
   // 1. Today's puzzle row (word + per-player budgets)
   let todayRows;
   try {
-    todayRows = await readRangeFn(PORTILLO_GAMES_SHEET, 'Wordle Today!A2:C100', { token: t });
+    todayRows = await readRangeFn(PORTILLO_GAMES_SHEET, 'Wordle Today!A2:C', { token: t });
   } catch (err) {
     if (/Unable to parse range|404/.test(err.message)) {
       return { ok: false, status: 'no_puzzle', message: "Today's puzzle isn't set up yet." };
