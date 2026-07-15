@@ -397,7 +397,15 @@ async function processQuery(
         log(`Context compacted${detail}.`);
       } else if (event.type === 'result') {
         const isEmpty = !event.text || event.text.trim().length === 0;
-        if (isEmpty) {
+        // Treat API-error text output the same as empty: the SDK propagated
+        // an upstream failure as result text with no <message> wrapping.
+        // Seen 2026-07-15 when Ollama Pro retired gemini-3-flash-preview
+        // at midnight — every turn returned 'API Error: 410 …' as text,
+        // isEmpty was false, so the empty-output retry didn't fire and
+        // chat messages got silently markCompleted'd for 15 hours across
+        // 5 channels. Detect the sentinel prefix + treat as retriable.
+        const isApiError = !!event.text && /^\s*API Error:\s*\d{3}/i.test(event.text);
+        if (isEmpty || isApiError) {
           // Empty result is suspicious for chat messages — the agent should
           // reply, ack, or emit '[no-reply]' as text. A truly-empty result
           // means the SDK returned nothing (silent error, timeout, hung
@@ -428,10 +436,12 @@ async function processQuery(
             }
           }
           if (retriable.length > 0) {
+            const reason = isApiError ? 'api-error-output' : 'empty-output-chat';
             log(
-              `SESSION_NEEDS_INVESTIGATE reason=empty-output-chat compaction=${compactionThisTurn} — ` +
+              `SESSION_NEEDS_INVESTIGATE reason=${reason} compaction=${compactionThisTurn} — ` +
                 `leaving ${retriable.length} chat message(s) pending for host retry, ` +
-                `marking ${nonRetriable.length} non-chat/exhausted as completed`,
+                `marking ${nonRetriable.length} non-chat/exhausted as completed` +
+                (isApiError ? ` (upstream: ${event.text!.slice(0, 120)})` : ''),
             );
             if (nonRetriable.length > 0) markCompleted(nonRetriable);
             continue;
