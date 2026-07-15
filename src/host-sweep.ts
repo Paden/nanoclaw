@@ -49,6 +49,7 @@ import type { Session } from './types.js';
 import { reconcileWordleCoinsTick } from './wordle-coin-reconciliation.js';
 import { jsonlBytesForSession, rotateSession } from './session-rotate.js';
 import { SESSION_JSONL_ROTATE_MB } from './config.js';
+import { checkModelAvailabilityTick } from './model-availability-check.js';
 
 /**
  * SQLite TIMESTAMP columns store UTC without a timezone marker. Date.parse
@@ -148,6 +149,9 @@ async function sweep(): Promise<void> {
 
   // Throttled internally to ~once per 10 min; cheap when nothing to do.
   void reconcileWordleCoinsTick();
+  // Throttled internally to once per 24h; catches upstream model retirements
+  // before they cause silent multi-hour outages (see 2026-07-15 incident).
+  void checkModelAvailabilityTick();
 
   setTimeout(sweep, SWEEP_INTERVAL_MS);
 }
