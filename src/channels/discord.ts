@@ -2128,6 +2128,17 @@ export class DiscordChannel implements ChannelAdapter {
       text = JSON.stringify(content);
     }
 
+    // Capture <internal> content BEFORE stripping — the emilio-care
+    // chime-rescue below uses it to reconstruct a subtext when deepseek
+    // emits baby-voice text without calling send_message (see comment
+    // block at ~L2413). This has to happen pre-strip because the strip
+    // is aggressive.
+    let capturedInternal = '';
+    {
+      const m = text.match(/<internal>([\s\S]*?)<\/internal>/);
+      if (m) capturedInternal = m[1].trim();
+    }
+
     // Strip <internal>...</internal> blocks and any standalone [no-reply]
     // line. The sentinel is supposed to be the ENTIRE response when staying
     // silent, but models occasionally emit it as a leading marker followed
@@ -2417,6 +2428,8 @@ export class DiscordChannel implements ChannelAdapter {
       typeof content.sender !== 'string' &&
       (typeof content.subtext !== 'string' || !content.subtext.trim())
     ) {
+      // Rescue pattern A (gemini-era, 2026-06): body ends with an inline
+      // subtext line like "Emilio · 3oz Bottle · 1:15 PM".
       const m = text.match(/\n+\s*Emilio\s*·\s*([^\n]+?)\s*$/);
       if (m) {
         const subtextLine = m[1].trim();
@@ -2429,6 +2442,64 @@ export class DiscordChannel implements ChannelAdapter {
           text = body;
           (content as Record<string, unknown>).sender = 'Emilio';
           (content as Record<string, unknown>).subtext = subtextLine;
+        }
+      } else {
+        // Rescue pattern B (deepseek-era, 2026-07-17): baby-voice text
+        // with no subtext line and no send_message call — deepseek writes
+        // the chime AS the message body via <message to> instead of the
+        // MCP tool. Detect by leading interjection ("ouuu", "nini", "hiii",
+        // "num num", "BOOP", "big stretch", "mmm", "im back", "goo ga",
+        // "ahh", "peekaboo", "zzz", "waaa") and short body length. Promote
+        // to Emilio webhook; construct a subtext from recent inbound
+        // sender + captured <internal> content if available.
+        const BABY_VOICE_LEAD =
+          /^(?:ouu+|niini|nini|hii+i|num\s?num|big\s?stretch|BOOP|peek+aboo|waa+|goo\s?ga|zzz|im\s?bac?k+|ahh|mmm+m*|mmm+m*m|gaa+|whee+|yeee+)\b/i;
+        const looksLikeChime =
+          text.length < 200 &&
+          BABY_VOICE_LEAD.test(text) &&
+          // Exclude confirmations that shouldn't be a chime
+          !/^(got it|logged|all\s?set|updated|corrected|deleted|noted|okay|done)/i.test(text);
+        if (looksLikeChime) {
+          // Build a subtext. Prefer parsed info from the internal block;
+          // else fall back to "<sender> · <best-guess-event>" from recent
+          // inbound. Time comes from captured internal if present.
+          const recentSender = getRecentInboundSender(platformId) || '';
+          let subtext = '';
+          if (capturedInternal) {
+            // Look for common event phrases in the internal block —
+            // "Nap closed: 9:05-10:38 PM (93 min)" → "nap closed · 93 min"
+            // "Wet diaper logged at 11:43 PM" → "wet · 11:43 PM"
+            // "2oz feed logged at 1:41 AM" → "2oz · 1:41 AM"
+            const events: string[] = [];
+            const napM = capturedInternal.match(/nap\s+closed[^(]*\((\d+)\s*min\)/i);
+            if (napM) events.push(`nap closed · ${napM[1]} min`);
+            const asleepM = capturedInternal.match(/(asleep|sleep\s+start(?:ed)?)\s+(?:at\s+)?([0-9:]+\s*(?:AM|PM)?)/i);
+            if (asleepM) events.push(`asleep · ${asleepM[2].trim()}`);
+            const wetM = capturedInternal.match(/wet\s+diaper[^0-9]*([0-9:]+\s*(?:AM|PM)?)?/i);
+            if (wetM) events.push(wetM[1] ? `wet · ${wetM[1].trim()}` : 'wet');
+            const feedM = capturedInternal.match(
+              /(\d+(?:\.\d+)?)\s?oz\s+(?:feed|bottle|formula)[^0-9]*([0-9:]+\s*(?:AM|PM)?)?/i,
+            );
+            if (feedM) events.push(feedM[2] ? `${feedM[1]}oz · ${feedM[2].trim()}` : `${feedM[1]}oz`);
+            const awakeM = capturedInternal.match(/awake\s+(?:at\s+)?([0-9:]+\s*(?:AM|PM)?)/i);
+            if (awakeM) events.push(`awake · ${awakeM[1].trim()}`);
+            if (events.length > 0) {
+              subtext = `${recentSender ? recentSender + ' · ' : ''}${events.join(' · ')}`;
+            }
+          }
+          if (!subtext && recentSender) {
+            subtext = `${recentSender} · logged`;
+          }
+          if (subtext) {
+            log.warn('Promoted bare baby-voice text to Emilio chime (deepseek rescue)', {
+              platformId,
+              textPreview: text.slice(0, 60),
+              subtextPreview: subtext.slice(0, 80),
+              usedInternal: !!capturedInternal,
+            });
+            (content as Record<string, unknown>).sender = 'Emilio';
+            (content as Record<string, unknown>).subtext = subtext;
+          }
         }
       }
     }
