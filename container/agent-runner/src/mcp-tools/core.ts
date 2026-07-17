@@ -147,6 +147,73 @@ export const sendMessage: McpToolDefinition = {
   },
 };
 
+// send_chime — persona chime with mandatory sender + subtext.
+//
+// Split out of send_message on 2026-07-17 because different LLMs treat
+// optional params inconsistently: deepseek-v4-flash defaults to the
+// simplest shape (text-only) and drops sender+subtext even when the
+// CLAUDE.local.md rule requires them. A separate tool with a schema
+// that REQUIRES sender+subtext means the model can't accidentally
+// write a plain message when a chime is expected — the tool won't
+// accept the call otherwise. Under the hood this is identical to
+// send_message with sender+subtext set; the enforcement is entirely
+// in the JSON schema.
+export const sendChime: McpToolDefinition = {
+  tool: {
+    name: 'send_chime',
+    description:
+      'Send a webhook-persona chime (Emilio, Voss, Nyx, Zima). Use for every sheet-log event in #emilio-care (feedings, diapers, naps) and for occasional pet-voice flavor in #silverthorne. The persona renders with its own avatar+name; the subtext line renders as a small grey caption below. For plain Claudio replies (acks, questions, corrections) use send_message instead.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        to: {
+          type: 'string',
+          description: 'Destination name. Optional if you have only one destination.',
+        },
+        text: { type: 'string', description: 'The chime body — one line, persona voice.' },
+        sender: {
+          type: 'string',
+          enum: ['Emilio', 'Voss', 'Nyx', 'Zima'],
+          description: 'Webhook persona. Emilio for #emilio-care baby chimes; Voss/Nyx/Zima for silverthorne pet chimes (owner-scoped).',
+        },
+        subtext: {
+          type: 'string',
+          description:
+            'Grey caption rendered below the chime. Format: `<Parent> · <details> · <time>`. Examples: "Paden · 3oz Bottle · 6:15 PM", "Brenda · wet · 6:15 PM", "Paden · 6:15 PM · 47 min nap".',
+        },
+      },
+      required: ['text', 'sender', 'subtext'],
+    },
+  },
+  async handler(args) {
+    const text = args.text as string;
+    const sender = args.sender as string;
+    const subtext = args.subtext as string;
+    if (!text) return err('text is required');
+    if (!sender) return err('sender is required (one of: Emilio, Voss, Nyx, Zima)');
+    if (!subtext) return err('subtext is required (format: <Parent> · <details> · <time>)');
+
+    const routing = resolveRouting(args.to as string | undefined);
+    if ('error' in routing) return err(routing.error);
+
+    const content: Record<string, unknown> = { text, sender, subtext };
+
+    const id = generateId();
+    const seq = writeMessageOut({
+      id,
+      in_reply_to: getCurrentInReplyTo(),
+      kind: 'chat',
+      platform_id: routing.platform_id,
+      channel_type: routing.channel_type,
+      thread_id: routing.thread_id,
+      content: JSON.stringify(content),
+    });
+
+    log(`send_chime: #${seq} → ${routing.resolvedName} (sender: ${sender})`);
+    return ok(`Chime sent as ${sender} to ${routing.resolvedName} (id: ${seq})`);
+  },
+};
+
 export const sendFile: McpToolDefinition = {
   tool: {
     name: 'send_file',
@@ -276,4 +343,4 @@ export const addReaction: McpToolDefinition = {
   },
 };
 
-registerTools([sendMessage, sendFile, editMessage, addReaction]);
+registerTools([sendMessage, sendChime, sendFile, editMessage, addReaction]);
