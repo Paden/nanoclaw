@@ -2413,6 +2413,41 @@ export class DiscordChannel implements ChannelAdapter {
       }
     }
 
+    // Hallucination-suspect detector (audit-only, non-blocking). Watches for
+    // negative-assertion patterns from the agent — the phrase family Claudio
+    // used on 2026-07-18 when he confidently denied Brenda's 4:06 AM feeding
+    // existed even though the row was in the sheet. Doesn't block delivery;
+    // just logs to the error log so we can grep HALLUCINATION_SUSPECT to
+    // audit which types of requests produce false denials over time.
+    //
+    // Scoped to emilio-care + silverthorne where sheet-backed corrections
+    // happen most and false denials cause real user confusion.
+    if (
+      DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_emilio-care' ||
+      DiscordChannel.CHANNEL_FOLDERS[platformId] === 'discord_silverthorne'
+    ) {
+      const denialPatterns = [
+        /\b(?:don't|do not) see\b[^.!\n]{0,60}\b(?:entry|entries|row|log|feeding|nap|diaper|chore)/i,
+        /\bno (?:[\w-]+ ){0,3}(?:entries|rows|feedings|naps|diapers|chores|log entries)\b/i,
+        /\bnot (?:in the sheet|found in|logged)/i,
+        /\bcouldn't find\b[^.!\n]{0,80}\b(?:entry|row|feeding|nap|diaper|chore)/i,
+        /\bthere (?:are|is) no [\w-]+ (?:for|entries|entry)\b/i,
+      ];
+      for (const re of denialPatterns) {
+        const m = text.match(re);
+        if (m) {
+          log.warn('HALLUCINATION_SUSPECT: negative assertion in agent output', {
+            platformId,
+            channelFolder: DiscordChannel.CHANNEL_FOLDERS[platformId],
+            recentInboundSender: getRecentInboundSender(platformId),
+            matchedPhrase: m[0],
+            textPreview: text.slice(0, 200),
+          });
+          break; // one hit is enough for the audit trail
+        }
+      }
+    }
+
     // #emilio-care chime-rescue: post-compaction, Claudio sometimes loses
     // the `send_message({sender:"Emilio", subtext:"..."})` example shape
     // and writes plain messages with the subtext line baked into the body:
