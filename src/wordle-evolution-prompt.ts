@@ -19,7 +19,8 @@ const PET_FLAVOR: Record<string, PetFlavor> = {
     palette: 'obsidian black, magma orange, ember gold, ash grey, deep crimson',
     defaultMotif: 'volcanic essence — molten lineage, ash and ember in its presence',
     stages: {
-      Beast: 'volcanic-rock skin with glowing fissures across its body, ember claws, a slow plume of smoke from its shoulders',
+      Beast:
+        'volcanic-rock skin with glowing fissures across its body, ember claws, a slow plume of smoke from its shoulders',
       Spirit:
         'a half-flesh half-flame Spirit-form fire-walker, ember-eyed, ash trailing every movement, heat warping the air around it',
       Elemental:
@@ -34,7 +35,8 @@ const PET_FLAVOR: Record<string, PetFlavor> = {
     palette: 'deep indigo, cosmic violet, bioluminescent teal, silver-white',
     defaultMotif: 'lunar/cosmic essence — moonlight, vapor, drifting starlight',
     stages: {
-      Beast: 'congealed moonlight in feline shape, silver-furred with constellations across its flanks, eyes like twin moons',
+      Beast:
+        'congealed moonlight in feline shape, silver-furred with constellations across its flanks, eyes like twin moons',
       Spirit:
         'a Moonfang Specter — half-corporeal lunar essence, claws of crystalline silver, a halo of cold blue starlight, drifting just above the ground',
       Elemental:

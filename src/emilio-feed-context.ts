@@ -12,20 +12,10 @@ import { log } from './log.js';
 // sheets.mjs defaults to container-mount paths. Set host-side fallbacks
 // once at module load (matches the wordle-coin-reconciliation pattern).
 if (!process.env.GOOGLE_OAUTH_CREDENTIALS) {
-  process.env.GOOGLE_OAUTH_CREDENTIALS = path.resolve(
-    process.cwd(),
-    'data',
-    'google-calendar',
-    'gcp-oauth.keys.json',
-  );
+  process.env.GOOGLE_OAUTH_CREDENTIALS = path.resolve(process.cwd(), 'data', 'google-calendar', 'gcp-oauth.keys.json');
 }
 if (!process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH) {
-  process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH = path.join(
-    os.homedir(),
-    '.config',
-    'google-calendar-mcp',
-    'tokens.json',
-  );
+  process.env.GOOGLE_CALENDAR_MCP_TOKEN_PATH = path.join(os.homedir(), '.config', 'google-calendar-mcp', 'tokens.json');
 }
 
 const EMILIO_SHEET = '1mt_C1qtDRvaiYuK-iOvmxnTgsrcO3Fx0w389kMgvQzM';

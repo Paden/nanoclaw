@@ -89,9 +89,7 @@ async function maybePostAlert(availableModels: string[]): Promise<void> {
     // Lazy-import to avoid a module-load-time DB dependency in tests.
     const { writeIpcMessage } = await import('./ipc-writer.js');
     // Suggest closest alternatives — cloud-tier models with 'flash' or 'cloud' suffix.
-    const suggestions = availableModels
-      .filter((m) => /cloud/i.test(m) && !/^(glm|kimi)/i.test(m))
-      .slice(0, 6);
+    const suggestions = availableModels.filter((m) => /cloud/i.test(m) && !/^(glm|kimi)/i.test(m)).slice(0, 6);
     const text =
       `⚠️ **Admin alert — configured LLM model missing from upstream**\n` +
       `\`ANTHROPIC_MODEL=${ANTHROPIC_MODEL}\` is not in \`/v1/models\` response.\n` +
