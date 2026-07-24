@@ -6,6 +6,8 @@ import http from 'node:http';
 const UPSTREAM_HOST = '127.0.0.1';
 const UPSTREAM_PORT = 11434;
 const LISTEN_PORT = Number(process.env.THINK_PROXY_PORT || 11435);
+// ponytail: 127.0.0.1 default; Linux Docker needs 0.0.0.0 (containers arrive via bridge IP)
+const LISTEN_HOST = process.env.THINK_PROXY_HOST || '127.0.0.1';
 const THINK_LEVEL = process.env.THINK_LEVEL || 'low';
 const MODEL_MATCH = /gemini/i;
 
@@ -68,8 +70,8 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(LISTEN_PORT, '127.0.0.1', () => {
+server.listen(LISTEN_PORT, LISTEN_HOST, () => {
   console.log(
-    `[think-proxy] listening 127.0.0.1:${LISTEN_PORT} → ${UPSTREAM_HOST}:${UPSTREAM_PORT} (think=${THINK_LEVEL} for ${MODEL_MATCH})`,
+    `[think-proxy] listening ${LISTEN_HOST}:${LISTEN_PORT} → ${UPSTREAM_HOST}:${UPSTREAM_PORT} (think=${THINK_LEVEL} for ${MODEL_MATCH})`,
   );
 });
