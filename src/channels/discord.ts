@@ -729,7 +729,7 @@ export class DiscordChannel implements ChannelAdapter {
     let stdout: string;
     try {
       const res = await execFileAsync(
-        'node',
+        process.execPath,
         [scriptPath, player, guess, channelFolder, interaction.user.id, interaction.channelId],
         { timeout: 20_000, maxBuffer: 1_000_000 },
       );
@@ -818,7 +818,7 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'wordle-status-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync('node', [scriptPath, player], {
+      const res = await execFileAsync(process.execPath, [scriptPath, player], {
         timeout: 20_000,
         maxBuffer: 1_000_000,
       });
@@ -892,7 +892,7 @@ export class DiscordChannel implements ChannelAdapter {
 
   private async runEmilioCard(dateStr: string): Promise<string> {
     const scriptPath = path.resolve(process.cwd(), 'groups', 'discord_emilio-care', 'build_status_card.mjs');
-    const { stdout } = await execFileAsync('node', [scriptPath, '--date', dateStr], {
+    const { stdout } = await execFileAsync(process.execPath, [scriptPath, '--date', dateStr], {
       timeout: 20_000,
       maxBuffer: 1_000_000,
       env: {
@@ -966,7 +966,7 @@ export class DiscordChannel implements ChannelAdapter {
 
   private async runEmilioDaySlash(dateStr: string): Promise<{ ok?: boolean; table?: string; error?: string }> {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-day-slash.mjs');
-    const { stdout } = await execFileAsync('node', [scriptPath, `--date=${dateStr}`], {
+    const { stdout } = await execFileAsync(process.execPath, [scriptPath, `--date=${dateStr}`], {
       timeout: 25_000,
       maxBuffer: 1_000_000,
       env: {
@@ -1027,7 +1027,7 @@ export class DiscordChannel implements ChannelAdapter {
   private async runEmilioWeekSlash(endDate: string | null): Promise<{ ok?: boolean; table?: string; error?: string }> {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-week-slash.mjs');
     const args = endDate ? [scriptPath, `--end=${endDate}`] : [scriptPath];
-    const { stdout } = await execFileAsync('node', args, {
+    const { stdout } = await execFileAsync(process.execPath, args, {
       timeout: 25_000,
       maxBuffer: 1_000_000,
       env: {
@@ -1088,7 +1088,7 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-week-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync('node', [scriptPath], {
+      const res = await execFileAsync(process.execPath, [scriptPath], {
         timeout: 25_000,
         maxBuffer: 1_000_000,
         env: {
@@ -1153,7 +1153,7 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-day-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync('node', [scriptPath, `--date=${dateOpt}`], {
+      const res = await execFileAsync(process.execPath, [scriptPath, `--date=${dateOpt}`], {
         timeout: 25_000,
         maxBuffer: 1_000_000,
         env: {
@@ -1212,7 +1212,7 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'pet-status-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync('node', [scriptPath], {
+      const res = await execFileAsync(process.execPath, [scriptPath], {
         timeout: 15_000,
         maxBuffer: 1_000_000,
         env: {
@@ -1445,7 +1445,7 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'qotd-status-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync('node', [scriptPath, interaction.user.id], {
+      const res = await execFileAsync(process.execPath, [scriptPath, interaction.user.id], {
         timeout: 20_000,
         maxBuffer: 1_000_000,
       });
@@ -1521,7 +1521,7 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), cfg.scriptPath);
     let stdout: string;
     try {
-      const res = await execFileAsync('node', [scriptPath], {
+      const res = await execFileAsync(process.execPath, [scriptPath], {
         timeout: 20_000,
         maxBuffer: 2_000_000,
         env: {
@@ -1582,7 +1582,7 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'calendar-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync('node', [scriptPath], {
+      const res = await execFileAsync(process.execPath, [scriptPath], {
         timeout: 20_000,
         maxBuffer: 2_000_000,
       });
@@ -1615,7 +1615,7 @@ export class DiscordChannel implements ChannelAdapter {
     const focused = interaction.options.getFocused();
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'chore-slash.mjs');
     try {
-      const res = await execFileAsync('node', [scriptPath, 'autocomplete', interaction.user.id, focused], {
+      const res = await execFileAsync(process.execPath, [scriptPath, 'autocomplete', interaction.user.id, focused], {
         timeout: 2500,
         maxBuffer: 1_000_000,
       });
@@ -1663,7 +1663,7 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'chore-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync('node', [scriptPath, 'submit', interaction.user.id, value], {
+      const res = await execFileAsync(process.execPath, [scriptPath, 'submit', interaction.user.id, value], {
         timeout: 25_000,
         maxBuffer: 2_000_000,
       });
@@ -1857,7 +1857,7 @@ export class DiscordChannel implements ChannelAdapter {
       // — the very next interaction's deferReply often misses Discord's
       // 3-second window (Unknown interaction). Doubling the budget so a
       // single slow Sheets pass doesn't poison the next slash command.
-      const res = await execFileAsync('node', [scriptPath, interaction.commandName, userId, ...args], {
+      const res = await execFileAsync(process.execPath, [scriptPath, interaction.commandName, userId, ...args], {
         timeout: 60_000,
         maxBuffer: 1_000_000,
       });
@@ -1963,7 +1963,7 @@ export class DiscordChannel implements ChannelAdapter {
     }
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'emilio-slash.mjs');
     try {
-      const res = await execFileAsync('node', [scriptPath, 'autocomplete-feeding-row', interaction.user.id], {
+      const res = await execFileAsync(process.execPath, [scriptPath, 'autocomplete-feeding-row', interaction.user.id], {
         timeout: 5_000,
         maxBuffer: 200_000,
       });
@@ -2007,7 +2007,7 @@ export class DiscordChannel implements ChannelAdapter {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'qotd-slash.mjs');
     let stdout: string;
     try {
-      const res = await execFileAsync('node', [scriptPath, ...args], {
+      const res = await execFileAsync(process.execPath, [scriptPath, ...args], {
         timeout: 20_000,
         maxBuffer: 1_000_000,
       });
